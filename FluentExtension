@@ -1,9 +1,4 @@
--- ═══════════════════════════════════════════════════════════════════════════
--- FLUENTEXTENSION LIBRARY ADDON
--- ═══════════════════════════════════════════════════════════════════════════
-
 local UserInputService   = game:GetService("UserInputService")
-local TweenService       = game:GetService("TweenService")
 local RunService         = game:GetService("RunService")
 local Players            = game:GetService("Players")
 local StatsService       = game:GetService("Stats")
@@ -13,22 +8,19 @@ local CoreGui            = game:GetService("CoreGui")
 local LocalPlayer = Players.LocalPlayer
 
 local FluentExtension = {
-    Version = "2.0.0",
+    Version = "2.1.0",
     Library = nil,
     OverlayGui = nil,
     HotkeyWindow = nil,
     WatermarkFrame = nil,
     LocalInfoFrame = nil,
     PlaceName = "Roblox Game",
-    PlaceIcon = "rbxassetid://6031075931", -- Дефолт иконка
+    PlaceIcon = "rbxassetid://6031075931",
 }
-
--- ── ИНИЦИАЛИЗАЦИЯ И НАИВНАЯ ИНТЕГРАЦИЯ ──────────────────────────────────────
 
 function FluentExtension:Init(FluentLibrary)
     self.Library = FluentLibrary
 
-    -- Получение данных об игре через MarketplaceService
     task.spawn(function()
         pcall(function()
             local info = MarketplaceService:GetProductInfo(game.PlaceId)
@@ -41,7 +33,6 @@ function FluentExtension:Init(FluentLibrary)
         end)
     end)
 
-    -- Контейнер для плавающих окон
     local gui = Instance.new("ScreenGui")
     gui.Name = "FluentExtension_Container"
     gui.ResetOnSpawn = false
@@ -49,17 +40,14 @@ function FluentExtension:Init(FluentLibrary)
     gui.Parent = CoreGui
     self.OverlayGui = gui
 
-    -- Инжектим метод AddTagGrid во Fluent (для элементов Tab)
     if FluentLibrary.Elements then
-        FluentLibrary.Elements.AddTagGrid = function(self, config)
-            return FluentExtension:CreateTagGrid(self.Container, config)
+        FluentLibrary.Elements.AddTagGrid = function(s, config)
+            return FluentExtension:CreateTagGrid(s.Container, config)
         end
     end
 
     return self
 end
-
--- ── ДВИЖОК ПЕРЕТАСКИВАНИЯ МЫШЬЮ ──────────────────────────────────────────────
 
 function FluentExtension:MakeDraggable(frame, dragHandle)
     dragHandle = dragHandle or frame
@@ -94,8 +82,6 @@ function FluentExtension:MakeDraggable(frame, dragHandle)
     end)
 end
 
--- ── 1. ВОДЯНОЙ ЗНАК (WATERMARK) ──────────────────────────────────────────────
-
 function FluentExtension:CreateWatermark()
     if self.WatermarkFrame then return self.WatermarkFrame end
 
@@ -109,7 +95,6 @@ function FluentExtension:CreateWatermark()
     Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 6)
     local stroke = Instance.new("UIStroke", frame)
     stroke.Color = Color3.fromRGB(50, 58, 75)
-    stroke.Thickness = 1
 
     local icon = Instance.new("ImageLabel", frame)
     icon.Size = UDim2.fromOffset(18, 18)
@@ -126,12 +111,11 @@ function FluentExtension:CreateWatermark()
     label.TextColor3 = Color3.fromRGB(240, 240, 240)
     label.TextXAlignment = Enum.TextXAlignment.Left
 
-    -- Обновление FPS и Ping
     local lastTime = tick()
     local frameCount = 0
     local currentFPS = 60
 
-    RunService.Heartbeat:Connect(function(dt)
+    RunService.Heartbeat:Connect(function()
         frameCount = frameCount + 1
         local now = tick()
         if now - lastTime >= 0.5 then
@@ -152,8 +136,6 @@ function FluentExtension:CreateWatermark()
     self.WatermarkFrame = frame
     return frame
 end
-
--- ── 2. СИСТЕМА И ОКНО БИНДОВ (HOTKEYS SYSTEM) ───────────────────────────────
 
 function FluentExtension:CreateHotkeyWindow()
     if self.HotkeyWindow then return self.HotkeyWindow end
@@ -191,7 +173,6 @@ function FluentExtension:CreateHotkeyWindow()
 
     local rows = {}
 
-    -- Мониторинг состояния всех Keybind во Fluent.Options
     RunService.Heartbeat:Connect(function()
         if not self.Library or not self.Library.Options then return end
 
@@ -199,12 +180,7 @@ function FluentExtension:CreateHotkeyWindow()
 
         for idx, option in pairs(self.Library.Options) do
             if option.Type == "Keybind" and option.Value and option.Value ~= "None" then
-                local isActive = false
-                if option.GetState then
-                    isActive = option:GetState()
-                else
-                    isActive = option.Toggled or false
-                end
+                local isActive = option.GetState and option:GetState() or (option.Toggled or false)
 
                 if not rows[idx] then
                     local row = Instance.new("Frame", container)
@@ -216,7 +192,6 @@ function FluentExtension:CreateHotkeyWindow()
                     nameLbl.BackgroundTransparency = 1
                     nameLbl.Font = Enum.Font.Gotham
                     nameLbl.TextSize = 11
-                    nameLbl.TextColor3 = Color3.fromRGB(200, 205, 220)
                     nameLbl.TextXAlignment = Enum.TextXAlignment.Left
                     nameLbl.TextTruncate = Enum.TextTruncate.AtEnd
 
@@ -250,13 +225,11 @@ function FluentExtension:CreateHotkeyWindow()
             end
         end
 
-        -- Автоматический размер окна
-        local targetHeight = 34 + (activeCount * 24)
         if activeCount == 0 then
             frame.Visible = false
         else
             frame.Visible = true
-            frame.Size = UDim2.fromOffset(210, targetHeight)
+            frame.Size = UDim2.fromOffset(210, 34 + (activeCount * 24))
         end
     end)
 
@@ -265,25 +238,23 @@ function FluentExtension:CreateHotkeyWindow()
     return frame
 end
 
--- ── 3. КОНТЕКСТНОЕ МЕНЮ ПКМ (HOTKEY BIND SYSTEM) ───────────────────────────
-
 function FluentExtension:AttachContextMenu(fluentElement, optionIdx)
     local targetFrame = fluentElement.Frame or fluentElement
     if not targetFrame then return end
 
     targetFrame.InputBegan:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton2 then
-            self:OpenHotkeyContextMenu(input.Position, optionIdx, fluentElement)
+            self:OpenHotkeyContextMenu(input.Position, optionIdx)
         end
     end)
 end
 
-function FluentExtension:OpenHotkeyContextMenu(position, optionIdx, fluentElement)
+function FluentExtension:OpenHotkeyContextMenu(position, optionIdx)
     if self.CurrentContextMenu then self.CurrentContextMenu:Destroy() end
 
     local menu = Instance.new("Frame", self.OverlayGui)
     menu.Name = "Fluent_HotkeyContextMenu"
-    menu.Size = UDim2.fromOffset(160, 125)
+    menu.Size = UDim2.fromOffset(160, 100)
     menu.Position = UDim2.fromOffset(position.X, position.Y)
     menu.BackgroundColor3 = Color3.fromRGB(22, 25, 34)
     menu.BorderSizePixel = 0
@@ -302,7 +273,7 @@ function FluentExtension:OpenHotkeyContextMenu(position, optionIdx, fluentElemen
 
     local function createBtn(txt, color, callback)
         local btn = Instance.new("TextButton", menu)
-        btn.Size = UDim2.new(1, 0, 0, 24)
+        btn.Size = UDim2.new(1, 0, 0, 22)
         btn.BackgroundTransparency = 1
         btn.Text = " " .. txt
         btn.TextColor3 = color or Color3.fromRGB(220, 225, 240)
@@ -326,12 +297,6 @@ function FluentExtension:OpenHotkeyContextMenu(position, optionIdx, fluentElemen
 
     local option = self.Library.Options[optionIdx]
 
-    createBtn("⚡ Set Hotkey", Color3.fromRGB(255, 255, 255), function()
-        if option and option.Type == "Keybind" then
-            -- Вызов стандартного бинда
-        end
-    end)
-
     createBtn("🔄 Mode: Toggle", Color3.fromRGB(180, 190, 210), function()
         if option and option.Type == "Keybind" then option.Mode = "Toggle" end
     end)
@@ -341,18 +306,16 @@ function FluentExtension:OpenHotkeyContextMenu(position, optionIdx, fluentElemen
     end)
 
     createBtn("🧹 Reset All Binds", Color3.fromRGB(255, 90, 90), function()
-        for idx, opt in pairs(self.Library.Options) do
+        for _, opt in pairs(self.Library.Options) do
             if opt.Type == "Keybind" then
                 opt:SetValue("None", "Toggle")
             end
         end
-        self.Library:Notify({ Title = "Hotkeys", Content = "Все бинды успешно сброшены!", Duration = 3 })
+        self.Library:Notify({ Title = "Hotkeys", Content = "Все бинды сброшены", Duration = 2.5 })
     end)
 
     self.CurrentContextMenu = menu
 end
-
--- ── 4. МУЛЬТИ-СЕЛЕКТ СЕТКА ТЕГОВ (TAG GRID) ────────────────────────────────
 
 function FluentExtension:CreateTagGrid(container, config)
     local TagGrid = {
@@ -437,8 +400,6 @@ function FluentExtension:CreateTagGrid(container, config)
     return TagGrid
 end
 
--- ── 5. LOCAL_INF (ПАНЕЛЬ ПРОФИЛЯ ИГРОКА СЛЕВА СНИЗУ) ────────────────────────
-
 function FluentExtension:AttachLocalInfo(fluentWindow)
     if self.LocalInfoFrame then return end
 
@@ -447,8 +408,8 @@ function FluentExtension:AttachLocalInfo(fluentWindow)
 
     local infoFrame = Instance.new("Frame", root)
     infoFrame.Name = "Local_Inf_Profile"
-    infoFrame.Size = UDim2.new(0, fluentWindow.TabWidth or 160, 0, 45)
-    infoFrame.Position = UDim2.new(0, 12, 1, -55)
+    infoFrame.Size = UDim2.new(0, fluentWindow.TabWidth or 160, 0, 40)
+    infoFrame.Position = UDim2.new(0, 12, 1, -50)
     infoFrame.BackgroundColor3 = Color3.fromRGB(18, 20, 26)
     infoFrame.BorderSizePixel = 0
 
@@ -457,12 +418,11 @@ function FluentExtension:AttachLocalInfo(fluentWindow)
     stroke.Color = Color3.fromRGB(45, 52, 68)
 
     local avatarImg = Instance.new("ImageLabel", infoFrame)
-    avatarImg.Size = UDim2.fromOffset(32, 32)
+    avatarImg.Size = UDim2.fromOffset(28, 28)
     avatarImg.Position = UDim2.fromOffset(6, 6)
     avatarImg.BackgroundTransparency = 1
     Instance.new("UICorner", avatarImg).CornerRadius = UDim.new(1, 0)
 
-    -- Подгрузка Headshot аватара
     task.spawn(function()
         local content = Players:GetUserThumbnailAsync(
             LocalPlayer.UserId,
@@ -473,25 +433,26 @@ function FluentExtension:AttachLocalInfo(fluentWindow)
     end)
 
     local nameLbl = Instance.new("TextLabel", infoFrame)
-    nameLbl.Size = UDim2.new(1, -48, 0, 16)
-    nameLbl.Position = UDim2.fromOffset(44, 7)
+    nameLbl.Size = UDim2.new(1, -42, 0, 15)
+    nameLbl.Position = UDim2.fromOffset(38, 5)
     nameLbl.BackgroundTransparency = 1
     nameLbl.Font = Enum.Font.GothamBold
     nameLbl.TextSize = 11
     nameLbl.TextColor3 = Color3.fromRGB(240, 245, 255)
     nameLbl.TextXAlignment = Enum.TextXAlignment.Left
     nameLbl.TextTruncate = Enum.TextTruncate.AtEnd
-    nameLbl.Text = LocalPlayer.DisplayName or LocalPlayer.Name
+    nameLbl.Text = LocalPlayer.DisplayName
 
-    local subLbl = Instance.new("TextLabel", infoFrame)
-    subLbl.Size = UDim2.new(1, -48, 0, 14)
-    subLbl.Position = UDim2.fromOffset(44, 23)
-    subLbl.BackgroundTransparency = 1
-    subLbl.Font = Enum.Font.Gotham
-    subLbl.TextSize = 10
-    subLbl.TextColor3 = Color3.fromRGB(89, 140, 250)
-    subLbl.TextXAlignment = Enum.TextXAlignment.Left
-    subLbl.Text = "User | Lifetime"
+    local userLbl = Instance.new("TextLabel", infoFrame)
+    userLbl.Size = UDim2.new(1, -42, 0, 13)
+    userLbl.Position = UDim2.fromOffset(38, 20)
+    userLbl.BackgroundTransparency = 1
+    userLbl.Font = Enum.Font.Gotham
+    userLbl.TextSize = 10
+    userLbl.TextColor3 = Color3.fromRGB(130, 140, 160)
+    userLbl.TextXAlignment = Enum.TextXAlignment.Left
+    userLbl.TextTruncate = Enum.TextTruncate.AtEnd
+    userLbl.Text = "@" .. LocalPlayer.Name
 
     self.LocalInfoFrame = infoFrame
     return infoFrame
