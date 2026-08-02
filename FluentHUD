@@ -1,0 +1,387 @@
+local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+local HttpService = game:GetService("HttpService")
+local Stats = game:GetService("Stats")
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+
+local FluentHUD = {
+    Folder = "FluentSettings",
+    Library = nil,
+    EditMode = false,
+    Settings = {
+        WatermarkEnabled = true,
+        WatermarkPos = { X = 0.8, Y = 0.02 },
+        WatermarkShowFPS = true,
+        WatermarkShowPing = true,
+        WatermarkShowTime = true,
+        
+        KeybindsEnabled = true,
+        KeybindsPos = { X = 0.02, Y = 0.4 },
+        
+        AccentColor = "rgb(120, 120, 255)",
+    },
+    Elements = {},
+    Signals = {}
+}
+
+-- ===================================================================
+-- Вспомогательный движок перетаскивания мышкой (Mouse Drag Engine)
+-- ===================================================================
+function FluentHUD:MakeDraggable(frame, onReleaseCallback)
+    local dragging = false
+    local dragInput, dragStart, startPos
+
+    local function update(input)
+        local delta = input.Position - dragStart
+        local viewportSize = workspace.CurrentCamera.ViewportSize
+        
+        local newX = math.clamp(startPos.X.Offset + delta.X, 0, viewportSize.X - frame.AbsoluteSize.X)
+        local newY = math.clamp(startPos.Y.Offset + delta.Y, 0, viewportSize.Y - frame.AbsoluteSize.Y)
+        
+        frame.Position = UDim2.fromOffset(newX, newY)
+    end
+
+    frame.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = true
+            dragStart = input.Position
+            startPos = frame.Position
+
+            input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then
+                    dragging = false
+                    if onReleaseCallback then
+                        local vp = workspace.CurrentCamera.ViewportSize
+                        local relX = frame.AbsolutePosition.X / vp.X
+                        local relY = frame.AbsolutePosition.Y / vp.Y
+                        onReleaseCallback(relX, relY)
+                    end
+                end
+            end)
+        end
+    end)
+
+    frame.InputChanged:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+            dragInput = input
+        end
+    end)
+
+    UserInputService.InputChanged:Connect(function(input)
+        if input == dragInput and dragging then
+            update(input)
+        end
+    end)
+end
+
+-- ===================================================================
+-- Работа с файлами конфигурации HUD
+-- ===================================================================
+function FluentHUD:SetFolder(folder)
+    self.Folder = folder
+end
+
+function FluentHUD:SetLibrary(library)
+    self.Library = library
+end
+
+function FluentHUD:SaveSettings()
+    if not isfolder(self.Folder) then makefolder(self.Folder) end
+    writefile(self.Folder .. "/hud_settings.json", HttpService:JSONEncode(self.Settings))
+end
+
+function FluentHUD:LoadSettings()
+    local path = self.Folder .. "/hud_settings.json"
+    if isfile and isfile(path) then
+        local success, decoded = pcall(HttpService.JSONDecode, HttpService, readfile(path))
+        if success and type(decoded) == "table" then
+            for k, v in pairs(decoded) do
+                self.Settings[k] = v
+            end
+        end
+    end
+end
+
+-- ===================================================================
+-- Создание Визуальных Компонентов (Watermark & Keybinds)
+-- ===================================================================
+function FluentHUD:InitVisuals()
+    local gui = self.Library.GUI
+    local vp = workspace.CurrentCamera.ViewportSize
+
+    -------------------------------------------------------------------
+    -- 1. WATERMARK
+    -------------------------------------------------------------------
+    local wmFrame = Instance.new("Frame")
+    wmFrame.Name = "FluentHUD_Watermark"
+    wmFrame.Size = UDim2.fromOffset(220, 30)
+    wmFrame.Position = UDim2.fromScale(self.Settings.WatermarkPos.X, self.Settings.WatermarkPos.Y)
+    wmFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+    wmFrame.BackgroundTransparency = 0.25
+    wmFrame.BorderSizePixel = 0
+    wmFrame.Visible = self.Settings.WatermarkEnabled
+    wmFrame.Parent = gui
+
+    local wmCorner = Instance.new("UICorner", wmFrame)
+    wmCorner.CornerRadius = UDim.new(0, 6)
+
+    local wmStroke = Instance.new("UIStroke", wmFrame)
+    wmStroke.Color = Color3.fromRGB(60, 60, 60)
+    wmStroke.Thickness = 1
+
+    local wmText = Instance.new("TextLabel", wmFrame)
+    wmText.Size = UDim2.fromScale(1, 1)
+    wmText.BackgroundTransparency = 1
+    wmText.Font = Enum.Font.GothamMedium
+    wmText.TextSize = 12
+    wmText.TextColor3 = Color3.fromRGB(240, 240, 240)
+    wmText.Text = "Fluent | Loading..."
+
+    self:MakeDraggable(wmFrame, function(relX, relY)
+        self.Settings.WatermarkPos = { X = relX, Y = relY }
+        self:SaveSettings()
+    end)
+
+    self.Elements.WatermarkFrame = wmFrame
+    self.Elements.WatermarkText = wmText
+    self.Elements.WatermarkStroke = wmStroke
+
+    -------------------------------------------------------------------
+    -- 2. KEYBIND LIST OVERLAY
+    -------------------------------------------------------------------
+    local kbFrame = Instance.new("Frame")
+    kbFrame.Name = "FluentHUD_Keybinds"
+    kbFrame.Size = UDim2.fromOffset(180, 40)
+    kbFrame.Position = UDim2.fromScale(self.Settings.KeybindsPos.X, self.Settings.KeybindsPos.Y)
+    kbFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+    kbFrame.BackgroundTransparency = 0.25
+    kbFrame.BorderSizePixel = 0
+    kbFrame.Visible = self.Settings.KeybindsEnabled
+    kbFrame.Parent = gui
+
+    local kbCorner = Instance.new("UICorner", kbFrame)
+    kbCorner.CornerRadius = UDim.new(0, 6)
+
+    local kbStroke = Instance.new("UIStroke", kbFrame)
+    kbStroke.Color = Color3.fromRGB(60, 60, 60)
+    kbStroke.Thickness = 1
+
+    local kbTitle = Instance.new("TextLabel", kbFrame)
+    kbTitle.Size = UDim2.new(1, 0, 0, 24)
+    kbTitle.BackgroundTransparency = 1
+    kbTitle.Font = Enum.Font.GothamBold
+    kbTitle.TextSize = 12
+    kbTitle.TextColor3 = Color3.fromRGB(255, 255, 255)
+    kbTitle.Text = "Keybinds"
+
+    local kbLine = Instance.new("Frame", kbFrame)
+    kbLine.Size = UDim2.new(1, -12, 0, 1)
+    kbLine.Position = UDim2.new(0, 6, 0, 24)
+    kbLine.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+    kbLine.BorderSizePixel = 0
+
+    local kbContainer = Instance.new("Frame", kbFrame)
+    kbContainer.Position = UDim2.new(0, 6, 0, 28)
+    kbContainer.Size = UDim2.new(1, -12, 0, 0)
+    kbContainer.BackgroundTransparency = 1
+
+    local kbLayout = Instance.new("UIListLayout", kbContainer)
+    kbLayout.SortOrder = Enum.SortOrder.LayoutOrder
+    kbLayout.Padding = UDim.new(0, 2)
+
+    self:MakeDraggable(kbFrame, function(relX, relY)
+        self.Settings.KeybindsPos = { X = relX, Y = relY }
+        self:SaveSettings()
+    end)
+
+    self.Elements.KeybindsFrame = kbFrame
+    self.Elements.KeybindsContainer = kbContainer
+    self.Elements.KeybindsStroke = kbStroke
+
+    -------------------------------------------------------------------
+    -- 3. РЕНДЕР-ЦИКЛ (Update Loop)
+    -------------------------------------------------------------------
+    local lastFpsUpdate = tick()
+    local fps = 60
+
+    RunService.RenderStepped:Connect(function(dt)
+        -- Обновление FPS / Ping / Time для Watermark
+        if self.Settings.WatermarkEnabled then
+            if tick() - lastFpsUpdate >= 0.3 then
+                fps = math.floor(1 / dt)
+                lastFpsUpdate = tick()
+                
+                local ping = math.floor(Stats.Network.ServerStatsItem["Data Ping"]:GetValue())
+                local timeStr = os.date("%H:%M:%S")
+                
+                local parts = { "Fluent" }
+                if self.Settings.WatermarkShowFPS then table.insert(parts, fps .. " FPS") end
+                if self.Settings.WatermarkShowPing then table.insert(parts, ping .. " ms") end
+                if self.Settings.WatermarkShowTime then table.insert(parts, timeStr) end
+                
+                wmText.Text = table.concat(parts, "  |  ")
+                local textBounds = wmText.TextBounds.X
+                wmFrame.Size = UDim2.fromOffset(math.max(160, textBounds + 20), 30)
+            end
+        end
+
+        -- Обновление списка Keybinds из библиотеки Fluent
+        if self.Settings.KeybindsEnabled and self.Library and self.Library.Options then
+            for _, child in ipairs(kbContainer:GetChildren()) do
+                if child:IsA("Frame") then child:Destroy() end
+            end
+
+            local count = 0
+            for idx, option in pairs(self.Library.Options) do
+                if option.Type == "Keybind" and option.Value ~= "None" then
+                    local active = option:GetState()
+                    if active or self.EditMode then
+                        count = count + 1
+                        
+                        local row = Instance.new("Frame")
+                        row.Size = UDim2.new(1, 0, 0, 16)
+                        row.BackgroundTransparency = 1
+                        row.Parent = kbContainer
+
+                        local nameLbl = Instance.new("TextLabel", row)
+                        nameLbl.Size = UDim2.new(0.6, 0, 1, 0)
+                        nameLbl.BackgroundTransparency = 1
+                        nameLbl.Font = Enum.Font.Gotham
+                        nameLbl.TextSize = 11
+                        nameLbl.TextColor3 = Color3.fromRGB(200, 200, 200)
+                        nameLbl.TextXAlignment = Enum.TextXAlignment.Left
+                        nameLbl.Text = idx
+
+                        local valLbl = Instance.new("TextLabel", row)
+                        valLbl.Size = UDim2.new(0.4, 0, 1, 0)
+                        valLbl.Position = UDim2.new(0.6, 0, 0, 0)
+                        valLbl.BackgroundTransparency = 1
+                        valLbl.Font = Enum.Font.GothamMedium
+                        valLbl.TextSize = 11
+                        valLbl.TextColor3 = active and Color3.fromRGB(100, 255, 100) or Color3.fromRGB(150, 150, 150)
+                        valLbl.TextXAlignment = Enum.TextXAlignment.Right
+                        valLbl.Text = "[" .. tostring(option.Value) .. "]"
+                    end
+                end
+            end
+
+            kbFrame.Size = UDim2.fromOffset(180, 32 + (count * 18))
+        end
+    end)
+end
+
+-- ===================================================================
+-- Переключение Режима Редактирования HUD (Edit / Unlock Mode)
+-- ===================================================================
+function FluentHUD:SetEditMode(state)
+    self.EditMode = state
+    local strokeColor = state and Color3.fromRGB(255, 170, 0) or Color3.fromRGB(60, 60, 60)
+    
+    if self.Elements.WatermarkStroke then
+        self.Elements.WatermarkStroke.Color = strokeColor
+        self.Elements.WatermarkStroke.Thickness = state and 2 or 1
+    end
+    
+    if self.Elements.KeybindsStroke then
+        self.Elements.KeybindsStroke.Color = strokeColor
+        self.Elements.KeybindsStroke.Thickness = state and 2 or 1
+    end
+end
+
+-- ===================================================================
+-- Создание секции настроек в интерфейсе Fluent
+-- ===================================================================
+function FluentHUD:BuildHUDSection(tab)
+    assert(self.Library, "Must set FluentHUD.Library before building section!")
+    self:LoadSettings()
+    self:InitVisuals()
+
+    local section = tab:AddSection("HUD & Overlay Controls")
+
+    -- 1. Кнопка Разблокировки Позиций (Перетаскивание мышкой)
+    section:AddToggle("FluentHUD_EditMode", {
+        Title = "Unlock HUD Drag Positions",
+        Description = "Позволяет двигать Водяной знак и Бинды мышкой по экрану.",
+        Default = self.EditMode,
+        Callback = function(Value)
+            self:SetEditMode(Value)
+        end
+    })
+
+    -- 2. Переключатели Watermark
+    section:AddToggle("FluentHUD_WatermarkToggle", {
+        Title = "Show Watermark",
+        Description = "Отображает инфо-панель на экране.",
+        Default = self.Settings.WatermarkEnabled,
+        Callback = function(Value)
+            self.Settings.WatermarkEnabled = Value
+            if self.Elements.WatermarkFrame then
+                self.Elements.WatermarkFrame.Visible = Value
+            end
+            self:SaveSettings()
+        end
+    })
+
+    section:AddToggle("FluentHUD_WM_FPS", {
+        Title = "Watermark: Show FPS",
+        Default = self.Settings.WatermarkShowFPS,
+        Callback = function(Value)
+            self.Settings.WatermarkShowFPS = Value
+            self:SaveSettings()
+        end
+    })
+
+    section:AddToggle("FluentHUD_WM_Ping", {
+        Title = "Watermark: Show Ping",
+        Default = self.Settings.WatermarkShowPing,
+        Callback = function(Value)
+            self.Settings.WatermarkShowPing = Value
+            self:SaveSettings()
+        end
+    })
+
+    section:AddToggle("FluentHUD_WM_Time", {
+        Title = "Watermark: Show Time",
+        Default = self.Settings.WatermarkShowTime,
+        Callback = function(Value)
+            self.Settings.WatermarkShowTime = Value
+            self:SaveSettings()
+        end
+    })
+
+    -- 3. Настройки Keybind Overlay
+    section:AddToggle("FluentHUD_KeybindsToggle", {
+        Title = "Show Keybinds List",
+        Description = "Отображает список активных клавиш.",
+        Default = self.Settings.KeybindsEnabled,
+        Callback = function(Value)
+            self.Settings.KeybindsEnabled = Value
+            if self.Elements.KeybindsFrame then
+                self.Elements.KeybindsFrame.Visible = Value
+            end
+            self:SaveSettings()
+        end
+    })
+
+    -- 4. Сброс позиций HUD
+    section:AddButton({
+        Title = "Reset HUD Positions",
+        Description = "Сбрасывает координаты элементов по умолчанию.",
+        Callback = function()
+            self.Settings.WatermarkPos = { X = 0.8, Y = 0.02 }
+            self.Settings.KeybindsPos = { X = 0.02, Y = 0.4 }
+            
+            if self.Elements.WatermarkFrame then
+                self.Elements.WatermarkFrame.Position = UDim2.fromScale(0.8, 0.02)
+            end
+            if self.Elements.KeybindsFrame then
+                self.Elements.KeybindsFrame.Position = UDim2.fromScale(0.02, 0.4)
+            end
+            
+            self:SaveSettings()
+        end
+    })
+end
+
+return FluentHUD
