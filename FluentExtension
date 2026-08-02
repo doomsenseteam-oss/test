@@ -1,4 +1,9 @@
+-- ═══════════════════════════════════════════════════════════════════════════
+-- FLUENTEXTENSION V3.0 (Full Neverlose UI Engine)
+-- ═══════════════════════════════════════════════════════════════════════════
+
 local UserInputService   = game:GetService("UserInputService")
+local TweenService       = game:GetService("TweenService")
 local RunService         = game:GetService("RunService")
 local Players            = game:GetService("Players")
 local StatsService       = game:GetService("Stats")
@@ -8,15 +13,16 @@ local CoreGui            = game:GetService("CoreGui")
 local LocalPlayer = Players.LocalPlayer
 
 local FluentExtension = {
-    Version = "2.1.0",
+    Version = "3.0.0",
     Library = nil,
     OverlayGui = nil,
-    HotkeyWindow = nil,
-    WatermarkFrame = nil,
-    LocalInfoFrame = nil,
+    Hotkeys = {},           -- Таблица биндов { [optId] = { Key="E", Mode="Hold", Visible=true, TargetValue=true, LuaPath="..." } }
+    ActiveOverlays = {},
     PlaceName = "Roblox Game",
     PlaceIcon = "rbxassetid://6031075931",
 }
+
+-- ── ИНИЦИАЛИЗАЦИЯ ────────────────────────────────────────────────────────────
 
 function FluentExtension:Init(FluentLibrary)
     self.Library = FluentLibrary
@@ -40,14 +46,20 @@ function FluentExtension:Init(FluentLibrary)
     gui.Parent = CoreGui
     self.OverlayGui = gui
 
+    -- Регистрация нативных методов во Fluent
     if FluentLibrary.Elements then
         FluentLibrary.Elements.AddTagGrid = function(s, config)
             return FluentExtension:CreateTagGrid(s.Container, config)
         end
     end
 
+    -- Глобальный слушатель нажатий клавиш для системы Биндов
+    self:StartHotkeyListener()
+
     return self
 end
+
+-- ── ДВИЖОК ПЕРЕТАСКИВАНИЯ МЫШЬЮ ──────────────────────────────────────────────
 
 function FluentExtension:MakeDraggable(frame, dragHandle)
     dragHandle = dragHandle or frame
@@ -82,22 +94,74 @@ function FluentExtension:MakeDraggable(frame, dragHandle)
     end)
 end
 
+-- ── СИСТЕМА ОБРАБОТКИ БИНДОВ И ТРИГГЕРОВ ────────────────────────────────────
+
+function FluentExtension:StartHotkeyListener()
+    UserInputService.InputBegan:Connect(function(input, gpe)
+        if gpe then return end
+        local keyCode = input.KeyCode ~= Enum.KeyCode.Unknown and input.KeyCode.Name or nil
+        local userInputType = input.UserInputType.Name
+
+        local keyName = keyCode or userInputType
+
+        for optionId, bindData in pairs(self.Hotkeys) do
+            if bindData.Key and bindData.Key == keyName then
+                local option = self.Library.Options[optionId]
+                if option then
+                    if bindData.Mode == "Toggle" then
+                        bindData.Active = not bindData.Active
+                        if option.SetValue then
+                            local val = bindData.Active and (bindData.TargetValue ~= nil and bindData.TargetValue or true) or false
+                            option:SetValue(val)
+                        end
+                    elseif bindData.Mode == "Hold" then
+                        bindData.Active = true
+                        if option.SetValue then
+                            local val = bindData.TargetValue ~= nil and bindData.TargetValue or true
+                            option:SetValue(val)
+                        end
+                    end
+                end
+            end
+        end
+    end)
+
+    UserInputService.InputEnded:Connect(function(input, gpe)
+        if gpe then return end
+        local keyCode = input.KeyCode ~= Enum.KeyCode.Unknown and input.KeyCode.Name or nil
+        local userInputType = input.UserInputType.Name
+        local keyName = keyCode or userInputType
+
+        for optionId, bindData in pairs(self.Hotkeys) do
+            if bindData.Key and bindData.Key == keyName and bindData.Mode == "Hold" then
+                bindData.Active = false
+                local option = self.Library.Options[optionId]
+                if option and option.SetValue then
+                    option:SetValue(false)
+                end
+            end
+        end
+    end)
+end
+
+-- ── 1. ВОДЯНОЙ ЗНАК (WATERMARK) ──────────────────────────────────────────────
+
 function FluentExtension:CreateWatermark()
     if self.WatermarkFrame then return self.WatermarkFrame end
 
     local frame = Instance.new("Frame", self.OverlayGui)
     frame.Name = "Fluent_Watermark"
-    frame.Size = UDim2.fromOffset(320, 32)
+    frame.Size = UDim2.fromOffset(320, 30)
     frame.Position = UDim2.new(1, -330, 0, 15)
-    frame.BackgroundColor3 = Color3.fromRGB(18, 20, 26)
+    frame.BackgroundColor3 = Color3.fromRGB(15, 18, 24)
     frame.BorderSizePixel = 0
 
     Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 6)
     local stroke = Instance.new("UIStroke", frame)
-    stroke.Color = Color3.fromRGB(50, 58, 75)
+    stroke.Color = Color3.fromRGB(45, 52, 68)
 
     local icon = Instance.new("ImageLabel", frame)
-    icon.Size = UDim2.fromOffset(18, 18)
+    icon.Size = UDim2.fromOffset(16, 16)
     icon.Position = UDim2.fromOffset(8, 7)
     icon.BackgroundTransparency = 1
     icon.Image = self.PlaceIcon
@@ -107,26 +171,23 @@ function FluentExtension:CreateWatermark()
     label.Position = UDim2.fromOffset(30, 0)
     label.BackgroundTransparency = 1
     label.Font = Enum.Font.GothamMedium
-    label.TextSize = 12
-    label.TextColor3 = Color3.fromRGB(240, 240, 240)
+    label.TextSize = 11
+    label.TextColor3 = Color3.fromRGB(230, 235, 245)
     label.TextXAlignment = Enum.TextXAlignment.Left
 
     local lastTime = tick()
     local frameCount = 0
-    local currentFPS = 60
 
     RunService.Heartbeat:Connect(function()
         frameCount = frameCount + 1
         local now = tick()
         if now - lastTime >= 0.5 then
-            currentFPS = math.floor(frameCount / (now - lastTime))
+            local currentFPS = math.floor(frameCount / (now - lastTime))
             frameCount = 0
             lastTime = now
 
             local ping = 0
-            pcall(function()
-                ping = math.floor(StatsService.Network.ServerStatsItem["Data Ping"]:GetValue())
-            end)
+            pcall(function() ping = math.floor(StatsService.Network.ServerStatsItem["Data Ping"]:GetValue()) end)
 
             label.Text = string.format("Fluent | %s | %d fps | %d ms", self.PlaceName, currentFPS, ping)
         end
@@ -137,20 +198,22 @@ function FluentExtension:CreateWatermark()
     return frame
 end
 
+-- ── 2. ПЛАВАЮЩЕЕ ОКНО БИНДОВ (HOTKEYS OVERLAY WINDOW) ───────────────────────
+
 function FluentExtension:CreateHotkeyWindow()
     if self.HotkeyWindow then return self.HotkeyWindow end
 
     local frame = Instance.new("Frame", self.OverlayGui)
-    frame.Name = "Fluent_Hotkeys"
+    frame.Name = "Fluent_HotkeysWindow"
     frame.Size = UDim2.fromOffset(210, 32)
     frame.Position = UDim2.new(0, 15, 0.4, 0)
-    frame.BackgroundColor3 = Color3.fromRGB(18, 20, 26)
+    frame.BackgroundColor3 = Color3.fromRGB(15, 18, 24)
     frame.BorderSizePixel = 0
     frame.ClipsDescendants = true
 
     Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 6)
     local stroke = Instance.new("UIStroke", frame)
-    stroke.Color = Color3.fromRGB(50, 58, 75)
+    stroke.Color = Color3.fromRGB(45, 52, 68)
 
     local title = Instance.new("TextLabel", frame)
     title.Size = UDim2.new(1, 0, 0, 30)
@@ -174,21 +237,20 @@ function FluentExtension:CreateHotkeyWindow()
     local rows = {}
 
     RunService.Heartbeat:Connect(function()
-        if not self.Library or not self.Library.Options then return end
-
         local activeCount = 0
 
-        for idx, option in pairs(self.Library.Options) do
-            if option.Type == "Keybind" and option.Value and option.Value ~= "None" then
-                local isActive = option.GetState and option:GetState() or (option.Toggled or false)
+        for optionId, bindData in pairs(self.Hotkeys) do
+            if bindData.Visible and bindData.Key and bindData.Key ~= "None" then
+                local option = self.Library.Options[optionId]
+                local nameText = (option and option.Title) or optionId
 
-                if not rows[idx] then
+                if not rows[optionId] then
                     local row = Instance.new("Frame", container)
                     row.Size = UDim2.new(1, 0, 0, 20)
                     row.BackgroundTransparency = 1
 
                     local nameLbl = Instance.new("TextLabel", row)
-                    nameLbl.Size = UDim2.new(0.65, 0, 1, 0)
+                    nameLbl.Size = UDim2.new(0.6, 0, 1, 0)
                     nameLbl.BackgroundTransparency = 1
                     nameLbl.Font = Enum.Font.Gotham
                     nameLbl.TextSize = 11
@@ -196,32 +258,32 @@ function FluentExtension:CreateHotkeyWindow()
                     nameLbl.TextTruncate = Enum.TextTruncate.AtEnd
 
                     local stateLbl = Instance.new("TextLabel", row)
-                    stateLbl.Size = UDim2.new(0.35, 0, 1, 0)
-                    stateLbl.Position = UDim2.new(0.65, 0, 0, 0)
+                    stateLbl.Size = UDim2.new(0.4, 0, 1, 0)
+                    stateLbl.Position = UDim2.new(0.6, 0, 0, 0)
                     stateLbl.BackgroundTransparency = 1
                     stateLbl.Font = Enum.Font.GothamMedium
                     stateLbl.TextSize = 11
                     stateLbl.TextXAlignment = Enum.TextXAlignment.Right
 
-                    rows[idx] = { Frame = row, Name = nameLbl, State = stateLbl }
+                    rows[optionId] = { Frame = row, Name = nameLbl, State = stateLbl }
                 end
 
-                local r = rows[idx]
+                local r = rows[optionId]
                 r.Frame.Visible = true
-                r.Name.Text = option.Title or idx
-                r.State.Text = string.format("[%s] %s", tostring(option.Value), option.Mode or "Toggle")
+                r.Name.Text = nameText
+                r.State.Text = string.format("[%s] %s", bindData.Key, bindData.Mode or "Toggle")
 
-                if isActive then
+                if bindData.Active then
                     r.Name.TextColor3 = Color3.fromRGB(255, 255, 255)
                     r.State.TextColor3 = Color3.fromRGB(89, 140, 250)
                 else
                     r.Name.TextColor3 = Color3.fromRGB(140, 145, 160)
-                    r.State.TextColor3 = Color3.fromRGB(100, 105, 120)
+                    r.State.TextColor3 = Color3.fromRGB(90, 95, 110)
                 end
 
                 activeCount = activeCount + 1
-            elseif rows[idx] then
-                rows[idx].Frame.Visible = false
+            elseif rows[optionId] then
+                rows[optionId].Frame.Visible = false
             end
         end
 
@@ -238,31 +300,221 @@ function FluentExtension:CreateHotkeyWindow()
     return frame
 end
 
-function FluentExtension:AttachContextMenu(fluentElement, optionIdx)
-    local targetFrame = fluentElement.Frame or fluentElement
-    if not targetFrame then return end
+-- ── 3. ОКНО ГЛОБАЛЬНОГО МЕНЕДЖЕРА БИНДОВ ("ALL HOTKEYS") ────────────────────
 
-    targetFrame.InputBegan:Connect(function(input)
+function FluentExtension:OpenAllHotkeysWindow()
+    if self.AllHotkeysModal then
+        self.AllHotkeysModal.Visible = not self.AllHotkeysModal.Visible
+        return
+    end
+
+    local modal = Instance.new("Frame", self.OverlayGui)
+    modal.Name = "Fluent_AllHotkeysModal"
+    modal.Size = UDim2.fromOffset(580, 360)
+    modal.Position = UDim2.new(0.5, -290, 0.5, -180)
+    modal.BackgroundColor3 = Color3.fromRGB(15, 18, 24)
+    modal.BorderSizePixel = 0
+    modal.ZIndex = 3000
+
+    Instance.new("UICorner", modal).CornerRadius = UDim.new(0, 8)
+    local stroke = Instance.new("UIStroke", modal)
+    stroke.Color = Color3.fromRGB(50, 58, 75)
+
+    -- Header
+    local title = Instance.new("TextLabel", modal)
+    title.Size = UDim2.new(1, -40, 0, 36)
+    title.Position = UDim2.fromOffset(15, 0)
+    title.BackgroundTransparency = 1
+    title.Text = "All Hotkeys Manager"
+    title.TextColor3 = Color3.fromRGB(255, 255, 255)
+    title.Font = Enum.Font.GothamBold
+    title.TextSize = 14
+    title.TextXAlignment = Enum.TextXAlignment.Left
+
+    local closeBtn = Instance.new("TextButton", modal)
+    closeBtn.Size = UDim2.fromOffset(24, 24)
+    closeBtn.Position = UDim2.new(1, -32, 0, 6)
+    closeBtn.BackgroundTransparency = 1
+    closeBtn.Text = "✕"
+    closeBtn.TextColor3 = Color3.fromRGB(180, 185, 200)
+    closeBtn.Font = Enum.Font.GothamBold
+    closeBtn.TextSize = 13
+    closeBtn.MouseButton1Click:Connect(function() modal.Visible = false end)
+
+    -- Columns Line
+    local headers = Instance.new("Frame", modal)
+    headers.Size = UDim2.new(1, -30, 0, 24)
+    headers.Position = UDim2.fromOffset(15, 36)
+    headers.BackgroundColor3 = Color3.fromRGB(22, 26, 35)
+
+    Instance.new("UICorner", headers).CornerRadius = UDim.new(0, 4)
+
+    local function addColHeader(txt, size, xpos)
+        local h = Instance.new("TextLabel", headers)
+        h.Size = size
+        h.Position = xpos
+        h.BackgroundTransparency = 1
+        h.Text = txt
+        h.Font = Enum.Font.GothamMedium
+        h.TextSize = 10
+        h.TextColor3 = Color3.fromRGB(150, 160, 180)
+        h.TextXAlignment = Enum.TextXAlignment.Left
+    end
+
+    addColHeader("Feature", UDim2.new(0.3, 0, 1, 0), UDim2.fromOffset(10, 0))
+    addColHeader("Key", UDim2.new(0.18, 0, 1, 0), UDim2.new(0.3, 0, 0, 0))
+    addColHeader("Mode", UDim2.new(0.2, 0, 1, 0), UDim2.new(0.48, 0, 0, 0))
+    addColHeader("Visibility", UDim2.new(0.2, 0, 1, 0), UDim2.new(0.68, 0, 0, 0))
+    addColHeader("Action", UDim2.new(0.12, 0, 1, 0), UDim2.new(0.88, 0, 0, 0))
+
+    -- Scroll Area
+    local scroll = Instance.new("ScrollingFrame", modal)
+    scroll.Size = UDim2.new(1, -30, 1, -75)
+    scroll.Position = UDim2.fromOffset(15, 66)
+    scroll.BackgroundTransparency = 1
+    scroll.ScrollBarThickness = 3
+    scroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+    scroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+
+    local layout = Instance.new("UIListLayout", scroll)
+    layout.Padding = UDim.new(0, 4)
+
+    -- Функция обновления списка
+    local function refreshManager()
+        for _, child in pairs(scroll:GetChildren()) do
+            if child:IsA("Frame") then child:Destroy() end
+        end
+
+        for optionId, bindData in pairs(self.Hotkeys) do
+            local option = self.Library.Options[optionId]
+            local nameText = (option and option.Title) or optionId
+
+            local row = Instance.new("Frame", scroll)
+            row.Size = UDim2.new(1, 0, 0, 28)
+            row.BackgroundColor3 = Color3.fromRGB(20, 23, 31)
+
+            Instance.new("UICorner", row).CornerRadius = UDim.new(0, 4)
+
+            -- Name
+            local fLbl = Instance.new("TextLabel", row)
+            fLbl.Size = UDim2.new(0.3, -10, 1, 0)
+            fLbl.Position = UDim2.fromOffset(10, 0)
+            fLbl.BackgroundTransparency = 1
+            fLbl.Text = nameText
+            fLbl.Font = Enum.Font.Gotham
+            fLbl.TextSize = 11
+            fLbl.TextColor3 = Color3.fromRGB(230, 235, 245)
+            fLbl.TextXAlignment = Enum.TextXAlignment.Left
+
+            -- Key
+            local keyBtn = Instance.new("TextButton", row)
+            keyBtn.Size = UDim2.new(0.16, 0, 0, 20)
+            keyBtn.Position = UDim2.new(0.3, 0, 0.5, -10)
+            keyBtn.BackgroundColor3 = Color3.fromRGB(30, 35, 48)
+            keyBtn.Text = bindData.Key or "None"
+            keyBtn.TextColor3 = Color3.fromRGB(89, 140, 250)
+            keyBtn.Font = Enum.Font.GothamBold
+            keyBtn.TextSize = 10
+            Instance.new("UICorner", keyBtn).CornerRadius = UDim.new(0, 4)
+
+            -- Mode
+            local modeBtn = Instance.new("TextButton", row)
+            modeBtn.Size = UDim2.new(0.18, 0, 0, 20)
+            modeBtn.Position = UDim2.new(0.48, 0, 0.5, -10)
+            modeBtn.BackgroundColor3 = Color3.fromRGB(30, 35, 48)
+            modeBtn.Text = bindData.Mode or "Toggle"
+            modeBtn.TextColor3 = Color3.fromRGB(220, 225, 240)
+            modeBtn.Font = Enum.Font.Gotham
+            modeBtn.TextSize = 10
+            Instance.new("UICorner", modeBtn).CornerRadius = UDim.new(0, 4)
+
+            modeBtn.MouseButton1Click:Connect(function()
+                bindData.Mode = (bindData.Mode == "Toggle") and "Hold" or ((bindData.Mode == "Hold") and "Always" or "Toggle")
+                modeBtn.Text = bindData.Mode
+            end)
+
+            -- Visibility Toggle
+            local visBtn = Instance.new("TextButton", row)
+            visBtn.Size = UDim2.new(0.18, 0, 0, 20)
+            visBtn.Position = UDim2.new(0.68, 0, 0.5, -10)
+            visBtn.BackgroundColor3 = bindData.Visible and Color3.fromRGB(40, 120, 60) or Color3.fromRGB(45, 50, 65)
+            visBtn.Text = bindData.Visible and "Visible" or "Hidden"
+            visBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+            visBtn.Font = Enum.Font.Gotham
+            visBtn.TextSize = 10
+            Instance.new("UICorner", visBtn).CornerRadius = UDim.new(0, 4)
+
+            visBtn.MouseButton1Click:Connect(function()
+                bindData.Visible = not bindData.Visible
+                visBtn.Text = bindData.Visible and "Visible" or "Hidden"
+                visBtn.BackgroundColor3 = bindData.Visible and Color3.fromRGB(40, 120, 60) or Color3.fromRGB(45, 50, 65)
+            end)
+
+            -- Delete
+            local delBtn = Instance.new("TextButton", row)
+            delBtn.Size = UDim2.new(0.1, 0, 0, 20)
+            delBtn.Position = UDim2.new(0.88, 0, 0.5, -10)
+            delBtn.BackgroundColor3 = Color3.fromRGB(180, 50, 50)
+            delBtn.Text = "🗑"
+            delBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+            delBtn.Font = Enum.Font.GothamBold
+            delBtn.TextSize = 11
+            Instance.new("UICorner", delBtn).CornerRadius = UDim.new(0, 4)
+
+            delBtn.MouseButton1Click:Connect(function()
+                self.Hotkeys[optionId] = nil
+                refreshManager()
+            end)
+        end
+    end
+
+    refreshManager()
+    self:MakeDraggable(modal, title)
+    self.AllHotkeysModal = modal
+end
+
+-- ── 4. КОНТЕКСТНОЕ МЕНЮ ПКМ НА ЛЮБОМ ЭЛЕМЕНТЕ FLUENT ────────────────────────
+
+function FluentExtension:AttachContextMenu(fluentElement, optionId, luaPathStr)
+    local frame = fluentElement.Frame or fluentElement
+    if not frame then return end
+
+    -- Если бинд ещё не инициализирован для этого элемента — создаем структуру
+    if not self.Hotkeys[optionId] then
+        self.Hotkeys[optionId] = {
+            Key = "None",
+            Mode = "Toggle",
+            Visible = true,
+            TargetValue = true,
+            Active = false,
+            LuaPath = luaPathStr or string.format('ui.find("%s")', optionId)
+        }
+    end
+
+    frame.InputBegan:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton2 then
-            self:OpenHotkeyContextMenu(input.Position, optionIdx)
+            self:OpenContextMenu(input.Position, optionId, fluentElement)
         end
     end)
 end
 
-function FluentExtension:OpenHotkeyContextMenu(position, optionIdx)
+function FluentExtension:OpenContextMenu(position, optionId, fluentElement)
     if self.CurrentContextMenu then self.CurrentContextMenu:Destroy() end
 
+    local bindData = self.Hotkeys[optionId]
+    local option = self.Library.Options[optionId]
+
     local menu = Instance.new("Frame", self.OverlayGui)
-    menu.Name = "Fluent_HotkeyContextMenu"
-    menu.Size = UDim2.fromOffset(160, 100)
+    menu.Name = "Fluent_RMB_ContextMenu"
+    menu.Size = UDim2.fromOffset(165, 120)
     menu.Position = UDim2.fromOffset(position.X, position.Y)
-    menu.BackgroundColor3 = Color3.fromRGB(22, 25, 34)
+    menu.BackgroundColor3 = Color3.fromRGB(18, 21, 28)
     menu.BorderSizePixel = 0
-    menu.ZIndex = 2000
+    menu.ZIndex = 4000
 
     Instance.new("UICorner", menu).CornerRadius = UDim.new(0, 6)
     local stroke = Instance.new("UIStroke", menu)
-    stroke.Color = Color3.fromRGB(55, 65, 85)
+    stroke.Color = Color3.fromRGB(50, 58, 75)
 
     local layout = Instance.new("UIListLayout", menu)
     layout.Padding = UDim.new(0, 2)
@@ -271,16 +523,16 @@ function FluentExtension:OpenHotkeyContextMenu(position, optionIdx)
     pad.PaddingLeft = UDim.new(0, 4)
     pad.PaddingRight = UDim.new(0, 4)
 
-    local function createBtn(txt, color, callback)
+    local function addRow(icon, text, color, callback)
         local btn = Instance.new("TextButton", menu)
         btn.Size = UDim2.new(1, 0, 0, 22)
         btn.BackgroundTransparency = 1
-        btn.Text = " " .. txt
-        btn.TextColor3 = color or Color3.fromRGB(220, 225, 240)
+        btn.Text = string.format(" %s  %s", icon, text)
+        btn.TextColor3 = color or Color3.fromRGB(225, 230, 245)
         btn.Font = Enum.Font.Gotham
         btn.TextSize = 11
         btn.TextXAlignment = Enum.TextXAlignment.Left
-        btn.ZIndex = 2001
+        btn.ZIndex = 4001
         Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 4)
 
         btn.MouseEnter:Connect(function()
@@ -289,33 +541,206 @@ function FluentExtension:OpenHotkeyContextMenu(position, optionIdx)
         end)
         btn.MouseLeave:Connect(function() btn.BackgroundTransparency = 1 end)
         btn.MouseButton1Click:Connect(function()
-            if callback then callback() end
             menu:Destroy()
             self.CurrentContextMenu = nil
+            if callback then callback() end
         end)
     end
 
-    local option = self.Library.Options[optionIdx]
+    local bindText = (bindData and bindData.Key and bindData.Key ~= "None") and string.format("[%s] >", bindData.Key) or "Unbound >"
 
-    createBtn("🔄 Mode: Toggle", Color3.fromRGB(180, 190, 210), function()
-        if option and option.Type == "Keybind" then option.Mode = "Toggle" end
+    addRow("⌨", bindText, Color3.fromRGB(255, 255, 255), function()
+        self:OpenHotkeyConfigModal(position, optionId, fluentElement)
     end)
 
-    createBtn("🛑 Mode: Hold", Color3.fromRGB(180, 190, 210), function()
-        if option and option.Type == "Keybind" then option.Mode = "Hold" end
+    addRow("📋", "All Hotkeys", Color3.fromRGB(210, 215, 230), function()
+        self:OpenAllHotkeysWindow()
     end)
 
-    createBtn("🧹 Reset All Binds", Color3.fromRGB(255, 90, 90), function()
-        for _, opt in pairs(self.Library.Options) do
-            if opt.Type == "Keybind" then
-                opt:SetValue("None", "Toggle")
-            end
+    addRow("➕", "New Hotkey", Color3.fromRGB(210, 215, 230), function()
+        self:OpenHotkeyConfigModal(position, optionId, fluentElement)
+    end)
+
+    addRow("🔗", "Copy Path", Color3.fromRGB(210, 215, 230), function()
+        local path = bindData and bindData.LuaPath or string.format('ui.find("%s")', optionId)
+        pcall(function() setclipboard(path) end)
+        self.Library:Notify({ Title = "Context Menu", Content = "Скопировано: " .. path, Duration = 2.5 })
+    end)
+
+    addRow("🔄", "Reset", Color3.fromRGB(255, 90, 90), function()
+        if bindData then
+            bindData.Key = "None"
+            bindData.Active = false
         end
-        self.Library:Notify({ Title = "Hotkeys", Content = "Все бинды сброшены", Duration = 2.5 })
+        if option and option.SetValue then
+            option:SetValue(option.Default or false)
+        end
+        self.Library:Notify({ Title = "Context Menu", Content = "Сброшено к дефолту", Duration = 2 })
     end)
 
     self.CurrentContextMenu = menu
+
+    -- Закрытие при клике мимо
+    local conn
+    conn = UserInputService.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            if menu and menu.Parent then
+                local mPos = UserInputService:GetMouseLocation()
+                local aPos, aSize = menu.AbsolutePosition, menu.AbsoluteSize
+                if mPos.X < aPos.X or mPos.X > aPos.X + aSize.X or mPos.Y < aPos.Y or mPos.Y > aPos.Y + aSize.Y then
+                    menu:Destroy()
+                    self.CurrentContextMenu = nil
+                    conn:Disconnect()
+                end
+            else
+                conn:Disconnect()
+            end
+        end
+    end)
 end
+
+-- ── 5. ПОДМЕНЮ НАСТРОЙКИ БИНДА (HOTKEY CONFIG MODAL) ──────────────────────
+
+function FluentExtension:OpenHotkeyConfigModal(position, optionId, fluentElement)
+    if self.CurrentConfigModal then self.CurrentConfigModal:Destroy() end
+
+    local bindData = self.Hotkeys[optionId]
+    local option = self.Library.Options[optionId]
+
+    local modal = Instance.new("Frame", self.OverlayGui)
+    modal.Name = "Fluent_HotkeyConfigModal"
+    modal.Size = UDim2.fromOffset(200, 160)
+    modal.Position = UDim2.fromOffset(position.X + 170, position.Y)
+    modal.BackgroundColor3 = Color3.fromRGB(18, 21, 28)
+    modal.BorderSizePixel = 0
+    modal.ZIndex = 5000
+
+    Instance.new("UICorner", modal).CornerRadius = UDim.new(0, 6)
+    local stroke = Instance.new("UIStroke", modal)
+    stroke.Color = Color3.fromRGB(50, 58, 75)
+
+    local pad = Instance.new("UIPadding", modal)
+    pad.PaddingTop = UDim.new(0, 8); pad.PaddingLeft = UDim.new(0, 10); pad.PaddingRight = UDim.new(0, 10)
+    local layout = Instance.new("UIListLayout", modal)
+    layout.Padding = UDim.new(0, 6)
+
+    -- 1. Key Picker
+    local keyRow = Instance.new("Frame", modal)
+    keyRow.Size = UDim2.new(1, 0, 0, 22); keyRow.BackgroundTransparency = 1
+    local kTitle = Instance.new("TextLabel", keyRow)
+    kTitle.Size = UDim2.new(0.5, 0, 1, 0); kTitle.BackgroundTransparency = 1; kTitle.Text = "Key"
+    kTitle.Font = Enum.Font.Gotham; kTitle.TextSize = 11; kTitle.TextColor3 = Color3.fromRGB(200, 205, 220); kTitle.TextXAlignment = Enum.TextXAlignment.Left
+
+    local kBtn = Instance.new("TextButton", keyRow)
+    kBtn.Size = UDim2.new(0.5, 0, 1, 0); kBtn.Position = UDim2.new(0.5, 0, 0, 0)
+    kBtn.BackgroundColor3 = Color3.fromRGB(30, 35, 48); kBtn.Text = bindData.Key or "None"
+    kBtn.Font = Enum.Font.GothamBold; kBtn.TextSize = 11; kBtn.TextColor3 = Color3.fromRGB(89, 140, 250)
+    Instance.new("UICorner", kBtn).CornerRadius = UDim.new(0, 4)
+
+    local listening = false
+    kBtn.MouseButton1Click:Connect(function()
+        listening = true
+        kBtn.Text = "..."
+        local conn
+        conn = UserInputService.InputBegan:Connect(function(inp)
+            if inp.UserInputType == Enum.UserInputType.Keyboard then
+                bindData.Key = inp.KeyCode.Name
+                kBtn.Text = bindData.Key
+                listening = false
+                conn:Disconnect()
+            elseif inp.UserInputType == Enum.UserInputType.MouseButton1 or inp.UserInputType == Enum.UserInputType.MouseButton2 then
+                bindData.Key = inp.UserInputType.Name
+                kBtn.Text = bindData.Key
+                listening = false
+                conn:Disconnect()
+            end
+        end)
+    end)
+
+    -- 2. Mode Selector
+    local modeRow = Instance.new("Frame", modal)
+    modeRow.Size = UDim2.new(1, 0, 0, 22); modeRow.BackgroundTransparency = 1
+    local mTitle = Instance.new("TextLabel", modeRow)
+    mTitle.Size = UDim2.new(0.5, 0, 1, 0); mTitle.BackgroundTransparency = 1; mTitle.Text = "Mode"
+    mTitle.Font = Enum.Font.Gotham; mTitle.TextSize = 11; mTitle.TextColor3 = Color3.fromRGB(200, 205, 220); mTitle.TextXAlignment = Enum.TextXAlignment.Left
+
+    local mBtn = Instance.new("TextButton", modeRow)
+    mBtn.Size = UDim2.new(0.5, 0, 1, 0); mBtn.Position = UDim2.new(0.5, 0, 0, 0)
+    mBtn.BackgroundColor3 = Color3.fromRGB(30, 35, 48); mBtn.Text = bindData.Mode or "Toggle"
+    mBtn.Font = Enum.Font.Gotham; mBtn.TextSize = 11; mBtn.TextColor3 = Color3.fromRGB(220, 225, 240)
+    Instance.new("UICorner", mBtn).CornerRadius = UDim.new(0, 4)
+
+    mBtn.MouseButton1Click:Connect(function()
+        bindData.Mode = (bindData.Mode == "Toggle") and "Hold" or ((bindData.Mode == "Hold") and "Always" or "Toggle")
+        mBtn.Text = bindData.Mode
+    end)
+
+    -- 3. Visible Toggle
+    local visRow = Instance.new("Frame", modal)
+    visRow.Size = UDim2.new(1, 0, 0, 22); visRow.BackgroundTransparency = 1
+    local vTitle = Instance.new("TextLabel", visRow)
+    vTitle.Size = UDim2.new(0.5, 0, 1, 0); vTitle.BackgroundTransparency = 1; vTitle.Text = "Visible"
+    vTitle.Font = Enum.Font.Gotham; vTitle.TextSize = 11; vTitle.TextColor3 = Color3.fromRGB(200, 205, 220); vTitle.TextXAlignment = Enum.TextXAlignment.Left
+
+    local vBtn = Instance.new("TextButton", visRow)
+    vBtn.Size = UDim2.new(0.5, 0, 1, 0); vBtn.Position = UDim2.new(0.5, 0, 0, 0)
+    vBtn.BackgroundColor3 = bindData.Visible and Color3.fromRGB(40, 120, 60) or Color3.fromRGB(45, 50, 65)
+    vBtn.Text = bindData.Visible and "On" or "Off"
+    vBtn.Font = Enum.Font.Gotham; vBtn.TextSize = 11; vBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    Instance.new("UICorner", vBtn).CornerRadius = UDim.new(0, 4)
+
+    vBtn.MouseButton1Click:Connect(function()
+        bindData.Visible = not bindData.Visible
+        vBtn.Text = bindData.Visible and "On" or "Off"
+        vBtn.BackgroundColor3 = bindData.Visible and Color3.fromRGB(40, 120, 60) or Color3.fromRGB(45, 50, 65)
+    end)
+
+    -- 4. Delete Action
+    local delBtn = Instance.new("TextButton", modal)
+    delBtn.Size = UDim2.new(1, 0, 0, 24)
+    delBtn.BackgroundColor3 = Color3.fromRGB(180, 50, 50)
+    delBtn.Text = "Delete Hotkey"
+    delBtn.Font = Enum.Font.GothamBold; delBtn.TextSize = 11; delBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    Instance.new("UICorner", delBtn).CornerRadius = UDim.new(0, 4)
+
+    delBtn.MouseButton1Click:Connect(function()
+        bindData.Key = "None"
+        bindData.Active = false
+        modal:Destroy()
+        self.CurrentConfigModal = nil
+    end)
+
+    self.CurrentConfigModal = modal
+end
+
+-- ── 6. КНОПКА ТРЕХ ТОЧЕК (`...` / EXTRA SETTINGS) ─────────────────────────
+
+function FluentExtension:AddSettings(fluentElement, settingsCallback)
+    local frame = fluentElement.Frame or fluentElement
+    if not frame then return end
+
+    local dotsBtn = Instance.new("TextButton", frame)
+    dotsBtn.Name = "Dots_Settings_Btn"
+    dotsBtn.Size = UDim2.fromOffset(24, 20)
+    dotsBtn.AnchorPoint = Vector2.new(1, 0.5)
+    dotsBtn.Position = UDim2.new(1, -50, 0.5, 0)
+    dotsBtn.BackgroundTransparency = 1
+    dotsBtn.Text = "•••"
+    dotsBtn.Font = Enum.Font.GothamBold
+    dotsBtn.TextSize = 12
+    dotsBtn.TextColor3 = Color3.fromRGB(140, 150, 170)
+
+    dotsBtn.MouseEnter:Connect(function() dotsBtn.TextColor3 = Color3.fromRGB(89, 140, 250) end)
+    dotsBtn.MouseLeave:Connect(function() dotsBtn.TextColor3 = Color3.fromRGB(140, 150, 170) end)
+
+    dotsBtn.MouseButton1Click:Connect(function()
+        if settingsCallback then
+            settingsCallback(dotsBtn.AbsolutePosition)
+        end
+    end)
+end
+
+-- ── 7. МУЛЬТИ-СЕЛЕКТ СЕТКА ТЕГОВ (TAG GRID) ────────────────────────────────
 
 function FluentExtension:CreateTagGrid(container, config)
     local TagGrid = {
@@ -329,7 +754,7 @@ function FluentExtension:CreateTagGrid(container, config)
     local mainFrame = Instance.new("Frame", container)
     mainFrame.Size = UDim2.new(1, 0, 0, 0)
     mainFrame.AutomaticSize = Enum.AutomaticSize.Y
-    mainFrame.BackgroundColor3 = Color3.fromRGB(22, 25, 34)
+    mainFrame.BackgroundColor3 = Color3.fromRGB(18, 21, 28)
     mainFrame.BackgroundTransparency = 0.2
     mainFrame.BorderSizePixel = 0
 
@@ -369,10 +794,10 @@ function FluentExtension:CreateTagGrid(container, config)
                 btnData.Stroke.Color = Color3.fromRGB(217, 51, 51)
                 btnData.Button.TextColor3 = Color3.fromRGB(255, 255, 255)
             else
-                btnData.Button.BackgroundColor3 = Color3.fromRGB(30, 35, 48)
+                btnData.Button.BackgroundColor3 = Color3.fromRGB(28, 32, 44)
                 btnData.Button.BackgroundTransparency = 0.5
-                btnData.Stroke.Color = Color3.fromRGB(50, 58, 75)
-                btnData.Button.TextColor3 = Color3.fromRGB(160, 168, 185)
+                btnData.Stroke.Color = Color3.fromRGB(48, 55, 72)
+                btnData.Button.TextColor3 = Color3.fromRGB(150, 160, 180)
             end
         end
     end
@@ -400,6 +825,8 @@ function FluentExtension:CreateTagGrid(container, config)
     return TagGrid
 end
 
+-- ── 8. LOCAL_INF (ПРОФИЛЬ ИГРОКА СЛЕВА СНИЗУ) ────────────────────────────────
+
 function FluentExtension:AttachLocalInfo(fluentWindow)
     if self.LocalInfoFrame then return end
 
@@ -408,9 +835,9 @@ function FluentExtension:AttachLocalInfo(fluentWindow)
 
     local infoFrame = Instance.new("Frame", root)
     infoFrame.Name = "Local_Inf_Profile"
-    infoFrame.Size = UDim2.new(0, fluentWindow.TabWidth or 160, 0, 40)
-    infoFrame.Position = UDim2.new(0, 12, 1, -50)
-    infoFrame.BackgroundColor3 = Color3.fromRGB(18, 20, 26)
+    infoFrame.Size = UDim2.new(0, (fluentWindow.TabWidth or 160) - 24, 0, 42)
+    infoFrame.Position = UDim2.new(0, 12, 1, -52)
+    infoFrame.BackgroundColor3 = Color3.fromRGB(18, 21, 28)
     infoFrame.BorderSizePixel = 0
 
     Instance.new("UICorner", infoFrame).CornerRadius = UDim.new(0, 6)
@@ -418,7 +845,7 @@ function FluentExtension:AttachLocalInfo(fluentWindow)
     stroke.Color = Color3.fromRGB(45, 52, 68)
 
     local avatarImg = Instance.new("ImageLabel", infoFrame)
-    avatarImg.Size = UDim2.fromOffset(28, 28)
+    avatarImg.Size = UDim2.fromOffset(30, 30)
     avatarImg.Position = UDim2.fromOffset(6, 6)
     avatarImg.BackgroundTransparency = 1
     Instance.new("UICorner", avatarImg).CornerRadius = UDim.new(1, 0)
@@ -433,8 +860,8 @@ function FluentExtension:AttachLocalInfo(fluentWindow)
     end)
 
     local nameLbl = Instance.new("TextLabel", infoFrame)
-    nameLbl.Size = UDim2.new(1, -42, 0, 15)
-    nameLbl.Position = UDim2.fromOffset(38, 5)
+    nameLbl.Size = UDim2.new(1, -44, 0, 16)
+    nameLbl.Position = UDim2.fromOffset(40, 5)
     nameLbl.BackgroundTransparency = 1
     nameLbl.Font = Enum.Font.GothamBold
     nameLbl.TextSize = 11
@@ -444,8 +871,8 @@ function FluentExtension:AttachLocalInfo(fluentWindow)
     nameLbl.Text = LocalPlayer.DisplayName
 
     local userLbl = Instance.new("TextLabel", infoFrame)
-    userLbl.Size = UDim2.new(1, -42, 0, 13)
-    userLbl.Position = UDim2.fromOffset(38, 20)
+    userLbl.Size = UDim2.new(1, -44, 0, 14)
+    userLbl.Position = UDim2.fromOffset(40, 21)
     userLbl.BackgroundTransparency = 1
     userLbl.Font = Enum.Font.Gotham
     userLbl.TextSize = 10
