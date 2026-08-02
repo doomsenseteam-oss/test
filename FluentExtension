@@ -1,0 +1,380 @@
+-- ═══════════════════════════════════════════════════════════════════════════
+-- FLUENT EXTENSION (NL-Style Addon for Fluent UI)
+-- ═══════════════════════════════════════════════════════════════════════════
+
+local UserInputService = game:GetService("UserInputService")
+local TweenService     = game:GetService("TweenService")
+local CoreGui          = game:GetService("CoreGui")
+local Players          = game:GetService("Players")
+local Workspace        = game:GetService("Workspace")
+
+local LocalPlayer = Players.LocalPlayer
+local Mouse       = LocalPlayer:GetMouse()
+
+local FluentExtension = {
+    Version = "1.0.0",
+    Library = nil,
+    OverlayGui = nil,
+    ActiveOverlays = {},
+}
+
+-- ── ИНИЦИАЛИЗАЦИЯ И ИНТЕГРАЦИЯ ──────────────────────────────────────────────
+
+function FluentExtension:Init(FluentLibrary)
+    self.Library = FluentLibrary
+
+    -- Создаем контейнер для плавающих оверлеев
+    local gui = Instance.new("ScreenGui")
+    gui.Name = "FluentExtension_Overlays"
+    gui.ResetOnSpawn = false
+    gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    gui.Parent = CoreGui
+    self.OverlayGui = gui
+
+    -- Внедряем новые методы элементов в элементы Fluent (Tabs / Sections)
+    self:HookFluentElements()
+
+    return self
+end
+
+-- ── СИСТЕМА ПЕРЕТАСКИВАНИЯ МЫШЬЮ (DRAGGABLE ENGINE) ─────────────────────────
+
+function FluentExtension:MakeDraggable(frame, dragHandle)
+    dragHandle = dragHandle or frame
+    local dragging = false
+    local dragInput, dragStart, startPos
+
+    local function update(input)
+        local delta = input.Position - dragStart
+        local newPos = UDim2.new(
+            startPos.X.Scale,
+            startPos.X.Offset + delta.X,
+            startPos.Y.Scale,
+            startPos.Y.Offset + delta.Y
+        )
+        TweenService:Create(frame, TweenInfo.new(0.08, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {
+            Position = newPos
+        }):Play()
+    end
+
+    dragHandle.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = true
+            dragStart = input.Position
+            startPos = frame.Position
+
+            input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then
+                    dragging = false
+                end
+            end)
+        end
+    end)
+
+    dragHandle.InputChanged:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+            dragInput = input
+        end
+    end)
+
+    UserInputService.InputChanged:Connect(function(input)
+        if input == dragInput and dragging then
+            update(input)
+        end
+    end)
+end
+
+-- ── КОНТЕКСТНОЕ МЕНЮ (RIGHT-CLICK MENU ENGINE) ─────────────────────────────
+
+function FluentExtension:AttachContextMenu(guiObject, options)
+    options = options or {}
+    -- options: { { Title = "Copy Path", Callback = function() end }, ... }
+
+    guiObject.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton2 then
+            self:OpenContextMenu(input.Position, options)
+        end
+    end)
+end
+
+function FluentExtension:OpenContextMenu(position, options)
+    if self.CurrentContextMenu then
+        self.CurrentContextMenu:Destroy()
+        self.CurrentContextMenu = nil
+    end
+
+    local menu = Instance.new("Frame")
+    menu.Name = "ContextMenu"
+    menu.Size = UDim2.fromOffset(150, #options * 28 + 10)
+    menu.Position = UDim2.fromOffset(position.X, position.Y)
+    menu.BackgroundColor3 = Color3.fromRGB(20, 23, 31)
+    menu.BorderSizePixel = 0
+    menu.ZIndex = 1000
+    menu.Parent = self.OverlayGui
+
+    local corner = Instance.new("UICorner", menu)
+    corner.CornerRadius = UDim.new(0, 6)
+
+    local stroke = Instance.new("UIStroke", menu)
+    stroke.Color = Color3.fromRGB(50, 60, 80)
+    stroke.Thickness = 1
+
+    local layout = Instance.new("UIListLayout", menu)
+    layout.SortOrder = Enum.SortOrder.LayoutOrder
+    layout.Padding = UDim.new(0, 2)
+
+    local padding = Instance.new("UIPadding", menu)
+    padding.PaddingTop = UDim.new(0, 5)
+    padding.PaddingBottom = UDim.new(0, 5)
+    padding.PaddingLeft = UDim.new(0, 5)
+    padding.PaddingRight = UDim.new(0, 5)
+
+    for i, opt in ipairs(options) do
+        local btn = Instance.new("TextButton")
+        btn.Size = UDim2.new(1, 0, 0, 24)
+        btn.BackgroundTransparency = 1
+        btn.Text = "  " .. opt.Title
+        btn.TextColor3 = opt.Color or Color3.fromRGB(220, 225, 235)
+        btn.Font = Enum.Font.Gotham
+        btn.TextSize = 12
+        btn.TextXAlignment = Enum.TextXAlignment.Left
+        btn.ZIndex = 1001
+        btn.Parent = menu
+
+        local btnCorner = Instance.new("UICorner", btn)
+        btnCorner.CornerRadius = UDim.new(0, 4)
+
+        btn.MouseEnter:Connect(function()
+            btn.BackgroundTransparency = 0.8
+            btn.BackgroundColor3 = Color3.fromRGB(89, 140, 250)
+        end)
+        btn.MouseLeave:Connect(function()
+            btn.BackgroundTransparency = 1
+        end)
+        btn.MouseButton1Click:Connect(function()
+            if opt.Callback then opt.Callback() end
+            menu:Destroy()
+            self.CurrentContextMenu = nil
+        end)
+    end
+
+    self.CurrentContextMenu = menu
+
+    -- Закрытие при клике мимо
+    local conn
+    conn = UserInputService.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            if menu and menu.Parent then
+                local mPos = UserInputService:GetMouseLocation()
+                local absPos = menu.AbsolutePosition
+                local absSize = menu.AbsoluteSize
+                if mPos.X < absPos.X or mPos.X > absPos.X + absSize.X or mPos.Y < absPos.Y or mPos.Y > absPos.Y + absSize.Y then
+                    menu:Destroy()
+                    self.CurrentContextMenu = nil
+                    conn:Disconnect()
+                end
+            else
+                conn:Disconnect()
+            end
+        end
+    end)
+end
+
+-- ── НОВЫЙ ЭЛЕМЕНТ: МУЛЬТИ-СЕЛЕКТ СЕТКА ТЕГОВ (TAG GRID) ────────────────────
+
+function FluentExtension:CreateTagGrid(container, config)
+    local TagGrid = {
+        Title = config.Title or "Tag Grid",
+        Items = config.Items or {}, -- { "Bounding Box", "Name", "Distance", ... }
+        Selected = config.Default or {},
+        Callback = config.Callback or function(selectedTbl) end,
+    }
+
+    local mainFrame = Instance.new("Frame")
+    mainFrame.Size = UDim2.new(1, 0, 0, 0)
+    mainFrame.AutomaticSize = Enum.AutomaticSize.Y
+    mainFrame.BackgroundColor3 = Color3.fromRGB(20, 23, 31)
+    mainFrame.BackgroundTransparency = 0.2
+    mainFrame.BorderSizePixel = 0
+    mainFrame.Parent = container
+
+    local mainCorner = Instance.new("UICorner", mainFrame)
+    mainCorner.CornerRadius = UDim.new(0, 6)
+
+    local mainStroke = Instance.new("UIStroke", mainFrame)
+    mainStroke.Color = Color3.fromRGB(40, 45, 60)
+    mainStroke.Thickness = 1
+
+    local titleLbl = Instance.new("TextLabel", mainFrame)
+    titleLbl.Size = UDim2.new(1, -20, 0, 24)
+    titleLbl.Position = UDim2.fromOffset(10, 4)
+    titleLbl.BackgroundTransparency = 1
+    titleLbl.Text = TagGrid.Title
+    titleLbl.TextColor3 = Color3.fromRGB(240, 240, 240)
+    titleLbl.Font = Enum.Font.GothamMedium
+    titleLbl.TextSize = 13
+    titleLbl.TextXAlignment = Enum.TextXAlignment.Left
+
+    local gridFrame = Instance.new("Frame", mainFrame)
+    gridFrame.Size = UDim2.new(1, -20, 0, 0)
+    gridFrame.Position = UDim2.fromOffset(10, 30)
+    gridFrame.AutomaticSize = Enum.AutomaticSize.Y
+    gridFrame.BackgroundTransparency = 1
+
+    local uigrid = Instance.new("UIGridLayout", gridFrame)
+    uigrid.CellSize = UDim2.fromOffset(100, 26)
+    uigrid.CellPadding = UDim2.fromOffset(6, 6)
+    uigrid.SortOrder = Enum.SortOrder.LayoutOrder
+
+    local padding = Instance.new("UIPadding", mainFrame)
+    padding.PaddingBottom = UDim.new(0, 10)
+
+    TagGrid.Buttons = {}
+
+    local function updateGrid()
+        for name, btnData in pairs(TagGrid.Buttons) do
+            local isSel = TagGrid.Selected[name]
+            if isSel then
+                btnData.Button.BackgroundColor3 = Color3.fromRGB(217, 51, 51)
+                btnData.Button.BackgroundTransparency = 0.8
+                btnData.Stroke.Color = Color3.fromRGB(217, 51, 51)
+                btnData.Button.TextColor3 = Color3.fromRGB(255, 255, 255)
+            else
+                btnData.Button.BackgroundColor3 = Color3.fromRGB(30, 35, 45)
+                btnData.Button.BackgroundTransparency = 0.5
+                btnData.Stroke.Color = Color3.fromRGB(50, 55, 70)
+                btnData.Button.TextColor3 = Color3.fromRGB(160, 170, 185)
+            end
+        end
+    end
+
+    for _, itemName in ipairs(TagGrid.Items) do
+        local tagBtn = Instance.new("TextButton", gridFrame)
+        tagBtn.Text = itemName
+        tagBtn.Font = Enum.Font.Gotham
+        tagBtn.TextSize = 11
+        tagBtn.AutoButtonColor = false
+
+        local btnCorner = Instance.new("UICorner", tagBtn)
+        btnCorner.CornerRadius = UDim.new(0, 4)
+
+        local btnStroke = Instance.new("UIStroke", tagBtn)
+        btnStroke.Thickness = 1
+
+        TagGrid.Buttons[itemName] = { Button = tagBtn, Stroke = btnStroke }
+
+        tagBtn.MouseButton1Click:Connect(function()
+            TagGrid.Selected[itemName] = not TagGrid.Selected[itemName]
+            updateGrid()
+            TagGrid.Callback(TagGrid.Selected)
+        end)
+    end
+
+    updateGrid()
+    return TagGrid
+end
+
+-- ── СЕРВИСНЫЕ ИНТЕРАКТИВНЫЕ ОКНА (OVERLAY WINDOWS) ─────────────────────────
+
+-- 1. WATERMARK OVERLAY
+function FluentExtension:CreateWatermark(config)
+    config = config or {}
+
+    local frame = Instance.new("Frame", self.OverlayGui)
+    frame.Name = "WatermarkOverlay"
+    frame.Size = UDim2.fromOffset(280, 32)
+    frame.Position = UDim2.new(0.5, -140, 0, 15)
+    frame.BackgroundColor3 = Color3.fromRGB(14, 16, 20)
+    frame.BackgroundTransparency = 0.1
+
+    Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 6)
+    local stroke = Instance.new("UIStroke", frame)
+    stroke.Color = Color3.fromRGB(59, 140, 250)
+    stroke.Thickness = 1
+
+    local txt = Instance.new("TextLabel", frame)
+    txt.Size = UDim2.fromScale(1, 1)
+    txt.BackgroundTransparency = 1
+    txt.Font = Enum.Font.GothamBold
+    txt.TextSize = 12
+    txt.TextColor3 = Color3.fromRGB(240, 240, 240)
+    txt.Text = " NEVERLOSE  |  CS2  |  fps: 144  |  ping: 12ms "
+
+    self:MakeDraggable(frame)
+    return frame
+end
+
+-- 2. HOTKEYS OVERLAY
+function FluentExtension:CreateHotkeyWindow()
+    local frame = Instance.new("Frame", self.OverlayGui)
+    frame.Name = "HotkeyOverlay"
+    frame.Size = UDim2.fromOffset(200, 140)
+    frame.Position = UDim2.new(0, 20, 0.4, 0)
+    frame.BackgroundColor3 = Color3.fromRGB(14, 16, 20)
+
+    Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 6)
+    local stroke = Instance.new("UIStroke", frame)
+    stroke.Color = Color3.fromRGB(40, 45, 60)
+
+    local title = Instance.new("TextLabel", frame)
+    title.Size = UDim2.new(1, 0, 0, 28)
+    title.BackgroundTransparency = 1
+    title.Text = "  Hotkeys"
+    title.TextColor3 = Color3.fromRGB(255, 255, 255)
+    title.Font = Enum.Font.GothamBold
+    title.TextSize = 12
+    title.TextXAlignment = Enum.TextXAlignment.Left
+
+    local container = Instance.new("Frame", frame)
+    container.Position = UDim2.fromOffset(0, 28)
+    container.Size = UDim2.new(1, 0, 1, -28)
+    container.BackgroundTransparency = 1
+
+    local layout = Instance.new("UIListLayout", container)
+    layout.Padding = UDim.new(0, 4)
+
+    self:MakeDraggable(frame, title)
+    return frame
+end
+
+-- 3. SPECTATORS OVERLAY
+function FluentExtension:CreateSpectatorWindow()
+    local frame = Instance.new("Frame", self.OverlayGui)
+    frame.Name = "SpectatorOverlay"
+    frame.Size = UDim2.fromOffset(180, 120)
+    frame.Position = UDim2.new(1, -200, 0.4, 0)
+    frame.BackgroundColor3 = Color3.fromRGB(14, 16, 20)
+
+    Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 6)
+    local stroke = Instance.new("UIStroke", frame)
+    stroke.Color = Color3.fromRGB(40, 45, 60)
+
+    local title = Instance.new("TextLabel", frame)
+    title.Size = UDim2.new(1, 0, 0, 28)
+    title.BackgroundTransparency = 1
+    title.Text = "  Spectators"
+    title.TextColor3 = Color3.fromRGB(255, 255, 255)
+    title.Font = Enum.Font.GothamBold
+    title.TextSize = 12
+    title.TextXAlignment = Enum.TextXAlignment.Left
+
+    self:MakeDraggable(frame, title)
+    return frame
+end
+
+-- ── РАСШИРЕНИЕ ОБЪЕКТОВ FLUENT ──────────────────────────────────────────────
+
+function FluentExtension:HookFluentElements()
+    local Library = self.Library
+    if not Library then return end
+
+    -- Добавляем метод AddTagGrid в секции Fluent
+    local origAddSection = Library.Elements.AddSection
+    
+    -- Внедрение кастомных генераторов виджетов в профиль Fluent
+    Library.AddTagGrid = function(container, config)
+        return FluentExtension:CreateTagGrid(container, config)
+    end
+end
+
+return FluentExtension
