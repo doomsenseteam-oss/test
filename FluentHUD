@@ -1,83 +1,193 @@
-local UserInputService = game:GetService("UserInputService")
-local RunService = game:GetService("RunService")
-local HttpService = game:GetService("HttpService")
-local Stats = game:GetService("Stats")
-local Players = game:GetService("Players")
+-- ═══════════════════════════════════════════════════════════════════════════
+-- FLUENT HUD ADDON v2.0 — REWRITTEN FROM SCRATCH
+-- ═══════════════════════════════════════════════════════════════════════════
+
+local UserInputService   = game:GetService("UserInputService")
+local RunService         = game:GetService("RunService")
+local HttpService        = game:GetService("HttpService")
+local StatsService       = game:GetService("Stats")
+local CoreGui            = game:GetService("CoreGui")
+local Players            = game:GetService("Players")
+local Workspace          = game:GetService("Workspace")
+
 local LocalPlayer = Players.LocalPlayer
+local Camera      = Workspace.CurrentCamera
 
 local FluentHUD = {
     Folder = "FluentSettings",
     Library = nil,
     EditMode = false,
+    
     Settings = {
-        WatermarkEnabled = true,
-        WatermarkPos = { X = 0.8, Y = 0.02 },
-        WatermarkShowFPS = true,
+        -- Watermark
+        WatermarkEnabled  = true,
+        WatermarkPos      = { X = 0.78, Y = 0.02 },
+        WatermarkShowFPS  = true,
         WatermarkShowPing = true,
         WatermarkShowTime = true,
-        
-        KeybindsEnabled = true,
-        KeybindsPos = { X = 0.02, Y = 0.4 },
-        
-        AccentColor = "rgb(120, 120, 255)",
+        WatermarkShowUser = true,
+
+        -- Keybinds
+        KeybindsEnabled      = true,
+        KeybindsPos          = { X = 0.02, Y = 0.35 },
+        KeybindsShowInactive = false,
+
+        -- Theme & Colors
+        UseThemeColor = true,
+        CustomAccent  = Color3.fromRGB(96, 205, 255),
     },
+
+    MobileSettings = {
+        Menu     = { Size = 50, Transp = 0, Enabled = true },
+        HideUI   = { Size = 50, Transp = 0, Enabled = true },
+        Fly      = { Size = 50, Transp = 0, Enabled = true },
+        Speed    = { Size = 50, Transp = 0, Enabled = true },
+        ART      = { Size = 50, Transp = 0, Enabled = true },
+        Teleport = { Size = 50, Transp = 0, Enabled = true },
+        AH       = { Size = 50, Transp = 0, Enabled = true },
+        Anim     = { Size = 50, Transp = 0, Enabled = true },
+        Silver   = { Size = 50, Transp = 0, Enabled = true },
+    },
+
     Elements = {},
-    Signals = {}
+    MobileButtons = {},
+    Connections = {}
 }
 
--- ===================================================================
--- Вспомогательный движок перетаскивания мышкой (Mouse Drag Engine)
--- ===================================================================
-function FluentHUD:MakeDraggable(frame, onReleaseCallback)
-    local dragging = false
-    local dragInput, dragStart, startPos
+-- ═══════════════════════════════════════════════════════════════════════════
+-- 1. СИСТЕМА ДИНАМИЧЕСКИХ ЦВЕТОВ И ТЕМ
+-- ═══════════════════════════════════════════════════════════════════════════
 
-    local function update(input)
-        local delta = input.Position - dragStart
-        local viewportSize = workspace.CurrentCamera.ViewportSize
-        
-        local newX = math.clamp(startPos.X.Offset + delta.X, 0, viewportSize.X - frame.AbsoluteSize.X)
-        local newY = math.clamp(startPos.Y.Offset + delta.Y, 0, viewportSize.Y - frame.AbsoluteSize.Y)
-        
-        frame.Position = UDim2.fromOffset(newX, newY)
+function FluentHUD:GetThemeColors()
+    if not self.Settings.UseThemeColor then
+        return {
+            Accent = self.Settings.CustomAccent,
+            Main   = Color3.fromRGB(25, 25, 25),
+            Text   = Color3.fromRGB(240, 240, 240),
+            Stroke = Color3.fromRGB(60, 60, 60),
+            Holder = Color3.fromRGB(15, 15, 15)
+        }
     end
 
-    frame.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-            dragging = true
-            dragStart = input.Position
-            startPos = frame.Position
+    local themeName = (self.Library and self.Library.Theme) or "Dark"
+    local colors = {
+        Accent = Color3.fromRGB(96, 205, 255),
+        Main   = Color3.fromRGB(30, 30, 30),
+        Text   = Color3.fromRGB(240, 240, 240),
+        Stroke = Color3.fromRGB(60, 60, 60),
+        Holder = Color3.fromRGB(20, 20, 20)
+    }
 
-            input.Changed:Connect(function()
+    if themeName == "Light" then
+        colors.Accent = Color3.fromRGB(0, 103, 192)
+        colors.Main   = Color3.fromRGB(235, 235, 235)
+        colors.Text   = Color3.fromRGB(20, 20, 20)
+        colors.Stroke = Color3.fromRGB(180, 180, 180)
+        colors.Holder = Color3.fromRGB(210, 210, 210)
+    elseif themeName == "Darker" then
+        colors.Accent = Color3.fromRGB(72, 138, 182)
+        colors.Main   = Color3.fromRGB(20, 20, 20)
+        colors.Stroke = Color3.fromRGB(45, 45, 45)
+        colors.Holder = Color3.fromRGB(12, 12, 12)
+    elseif themeName == "Aqua" then
+        colors.Accent = Color3.fromRGB(60, 165, 165)
+        colors.Main   = Color3.fromRGB(25, 45, 45)
+        colors.Stroke = Color3.fromRGB(50, 95, 95)
+        colors.Holder = Color3.fromRGB(15, 30, 30)
+    elseif themeName == "Amethyst" then
+        colors.Accent = Color3.fromRGB(97, 62, 167)
+        colors.Main   = Color3.fromRGB(35, 25, 50)
+        colors.Stroke = Color3.fromRGB(80, 55, 115)
+        colors.Holder = Color3.fromRGB(20, 15, 30)
+    elseif themeName == "Rose" then
+        colors.Accent = Color3.fromRGB(180, 55, 90)
+        colors.Main   = Color3.fromRGB(40, 25, 30)
+        colors.Stroke = Color3.fromRGB(110, 50, 70)
+        colors.Holder = Color3.fromRGB(25, 15, 20)
+    end
+
+    return colors
+end
+
+function FluentHUD:UpdateTheme()
+    local theme = self:GetThemeColors()
+
+    if self.Elements.WatermarkFrame then
+        self.Elements.WatermarkFrame.BackgroundColor3 = theme.Main
+        self.Elements.WatermarkText.TextColor3         = theme.Text
+        if not self.EditMode then
+            self.Elements.WatermarkStroke.Color = theme.Stroke
+        end
+    end
+
+    if self.Elements.KeybindsFrame then
+        self.Elements.KeybindsFrame.BackgroundColor3 = theme.Main
+        self.Elements.KeybindsTitle.TextColor3       = theme.Text
+        self.Elements.KeybindsLine.BackgroundColor3  = theme.Stroke
+        if not self.EditMode then
+            self.Elements.KeybindsStroke.Color = theme.Stroke
+        end
+    end
+
+    for id, btn in pairs(self.MobileButtons) do
+        if btn.UpdateColors then btn.UpdateColors() end
+    end
+end
+
+-- ═══════════════════════════════════════════════════════════════════════════
+-- 2. БЕЗЛАГОВЫЙ ДВИЖОК DRAG (БЕЗ СКАЧКОВ И РЫВКОВ)
+-- ═══════════════════════════════════════════════════════════════════════════
+
+function FluentHUD:MakeDraggable(frame, onReleaseCallback)
+    frame.Active = true -- Блокировка пробития клика в игру
+
+    local dragging = false
+    local dragOffset = Vector2.zero
+
+    frame.InputBegan:Connect(function(input)
+        if (input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch) then
+            dragging = true
+            
+            -- Точный расчет смещения клика относительно рамки (исключает прыжок)
+            local mousePos = Vector2.new(input.Position.X, input.Position.Y)
+            dragOffset = mousePos - frame.AbsolutePosition
+
+            local changedConn
+            changedConn = input.Changed:Connect(function()
                 if input.UserInputState == Enum.UserInputState.End then
                     dragging = false
+                    if changedConn then changedConn:Disconnect() end
                     if onReleaseCallback then
-                        local vp = workspace.CurrentCamera.ViewportSize
-                        local relX = frame.AbsolutePosition.X / vp.X
-                        local relY = frame.AbsolutePosition.Y / vp.Y
-                        onReleaseCallback(relX, relY)
+                        local vp = Camera.ViewportSize
+                        if vp.X > 0 and vp.Y > 0 then
+                            local relX = frame.AbsolutePosition.X / vp.X
+                            local relY = frame.AbsolutePosition.Y / vp.Y
+                            onReleaseCallback(relX, relY)
+                        end
                     end
                 end
             end)
         end
     end)
 
-    frame.InputChanged:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
-            dragInput = input
-        end
-    end)
+    table.insert(self.Connections, UserInputService.InputChanged:Connect(function(input)
+        if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+            local vp = Camera.ViewportSize
+            local mousePos = Vector2.new(input.Position.X, input.Position.Y)
+            local targetPos = mousePos - dragOffset
 
-    UserInputService.InputChanged:Connect(function(input)
-        if input == dragInput and dragging then
-            update(input)
+            local clampedX = math.clamp(targetPos.X, 0, math.max(0, vp.X - frame.AbsoluteSize.X))
+            local clampedY = math.clamp(targetPos.Y, 0, math.max(0, vp.Y - frame.AbsoluteSize.Y))
+
+            frame.Position = UDim2.fromOffset(clampedX, clampedY)
         end
-    end)
+    end))
 end
 
--- ===================================================================
--- Работа с файлами конфигурации HUD
--- ===================================================================
+-- ═══════════════════════════════════════════════════════════════════════════
+-- 3. СОХРАНЕНИЕ И ЗАГРУЗКА НАСТРОЕК
+-- ═══════════════════════════════════════════════════════════════════════════
+
 function FluentHUD:SetFolder(folder)
     self.Folder = folder
 end
@@ -87,301 +197,494 @@ function FluentHUD:SetLibrary(library)
 end
 
 function FluentHUD:SaveSettings()
-    if not isfolder(self.Folder) then makefolder(self.Folder) end
-    writefile(self.Folder .. "/hud_settings.json", HttpService:JSONEncode(self.Settings))
+    if not isfolder(self.Folder) then pcall(makefolder, self.Folder) end
+    local cfgPath = self.Folder .. "/hud_v2_settings.json"
+    local data = {
+        Settings = self.Settings,
+        Mobile   = self.MobileSettings
+    }
+    pcall(function() writefile(cfgPath, HttpService:JSONEncode(data)) end)
 end
 
 function FluentHUD:LoadSettings()
-    local path = self.Folder .. "/hud_settings.json"
-    if isfile and isfile(path) then
-        local success, decoded = pcall(HttpService.JSONDecode, HttpService, readfile(path))
+    local cfgPath = self.Folder .. "/hud_v2_settings.json"
+    if isfile and isfile(cfgPath) then
+        local success, decoded = pcall(HttpService.JSONDecode, HttpService, readfile(cfgPath))
         if success and type(decoded) == "table" then
-            for k, v in pairs(decoded) do
-                self.Settings[k] = v
+            if decoded.Settings then
+                for k, v in pairs(decoded.Settings) do self.Settings[k] = v end
+            end
+            if decoded.Mobile then
+                for k, v in pairs(decoded.Mobile) do self.MobileSettings[k] = v end
             end
         end
     end
 end
 
--- ===================================================================
--- Создание Визуальных Компонентов (Watermark & Keybinds)
--- ===================================================================
-function FluentHUD:InitVisuals()
-    local gui = self.Library.GUI
-    local vp = workspace.CurrentCamera.ViewportSize
+-- ═══════════════════════════════════════════════════════════════════════════
+-- 4. СОЗДАНИЕ GUI И ОВЕРЛЕЕВ (WATERMARK, KEYBINDS, MOBILE OVERLAY)
+-- ═══════════════════════════════════════════════════════════════════════════
 
-    -------------------------------------------------------------------
-    -- 1. WATERMARK
-    -------------------------------------------------------------------
+function FluentHUD:InitVisuals()
+    if self.ScreenGui then return end
+
+    local screen = Instance.new("ScreenGui")
+    screen.Name           = "FluentHUD_Overlay_v2"
+    screen.ResetOnSpawn   = false
+    screen.IgnoreGuiInset = true
+    screen.DisplayOrder   = 100
+    screen.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    screen.Parent         = CoreGui
+    self.ScreenGui        = screen
+
+    local vp = Camera.ViewportSize
+
+    ---------------------------------------------------------------------------
+    -- WATERMARK
+    ---------------------------------------------------------------------------
     local wmFrame = Instance.new("Frame")
-    wmFrame.Name = "FluentHUD_Watermark"
-    wmFrame.Size = UDim2.fromOffset(220, 30)
-    wmFrame.Position = UDim2.fromScale(self.Settings.WatermarkPos.X, self.Settings.WatermarkPos.Y)
-    wmFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
-    wmFrame.BackgroundTransparency = 0.25
-    wmFrame.BorderSizePixel = 0
-    wmFrame.Visible = self.Settings.WatermarkEnabled
-    wmFrame.Parent = gui
+    wmFrame.Name                   = "Watermark"
+    wmFrame.Active                 = true
+    wmFrame.Size                   = UDim2.fromOffset(200, 28)
+    wmFrame.Position               = UDim2.fromScale(self.Settings.WatermarkPos.X, self.Settings.WatermarkPos.Y)
+    wmFrame.BackgroundColor3       = Color3.fromRGB(30, 30, 30)
+    wmFrame.BackgroundTransparency = 0.2
+    wmFrame.BorderSizePixel        = 0
+    wmFrame.Visible                = self.Settings.WatermarkEnabled
+    wmFrame.ZIndex                 = 10
+    wmFrame.Parent                 = screen
 
     local wmCorner = Instance.new("UICorner", wmFrame)
     wmCorner.CornerRadius = UDim.new(0, 6)
 
     local wmStroke = Instance.new("UIStroke", wmFrame)
-    wmStroke.Color = Color3.fromRGB(60, 60, 60)
     wmStroke.Thickness = 1
+    wmStroke.Color     = Color3.fromRGB(60, 60, 60)
 
     local wmText = Instance.new("TextLabel", wmFrame)
-    wmText.Size = UDim2.fromScale(1, 1)
+    wmText.Size                   = UDim2.fromScale(1, 1)
     wmText.BackgroundTransparency = 1
-    wmText.Font = Enum.Font.GothamMedium
-    wmText.TextSize = 12
-    wmText.TextColor3 = Color3.fromRGB(240, 240, 240)
-    wmText.Text = "Fluent | Loading..."
+    wmText.Font                   = Enum.Font.GothamMedium
+    wmText.TextSize               = 12
+    wmText.TextColor3             = Color3.fromRGB(240, 240, 240)
+    wmText.Text                   = "Fluent | Init..."
+    wmText.ZIndex                 = 11
 
     self:MakeDraggable(wmFrame, function(relX, relY)
         self.Settings.WatermarkPos = { X = relX, Y = relY }
         self:SaveSettings()
     end)
 
-    self.Elements.WatermarkFrame = wmFrame
-    self.Elements.WatermarkText = wmText
+    self.Elements.WatermarkFrame  = wmFrame
+    self.Elements.WatermarkText   = wmText
     self.Elements.WatermarkStroke = wmStroke
 
-    -------------------------------------------------------------------
-    -- 2. KEYBIND LIST OVERLAY
-    -------------------------------------------------------------------
+    ---------------------------------------------------------------------------
+    -- KEYBINDS OVERLAY (ИСПРАВЛЕННЫЙ СМОТР И СМОТР ПОЗИЦИИ)
+    ---------------------------------------------------------------------------
     local kbFrame = Instance.new("Frame")
-    kbFrame.Name = "FluentHUD_Keybinds"
-    kbFrame.Size = UDim2.fromOffset(180, 40)
-    kbFrame.Position = UDim2.fromScale(self.Settings.KeybindsPos.X, self.Settings.KeybindsPos.Y)
-    kbFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
-    kbFrame.BackgroundTransparency = 0.25
-    kbFrame.BorderSizePixel = 0
-    kbFrame.Visible = self.Settings.KeybindsEnabled
-    kbFrame.Parent = gui
+    kbFrame.Name                   = "Keybinds"
+    kbFrame.Active                 = true
+    kbFrame.Size                   = UDim2.fromOffset(180, 40)
+    kbFrame.Position               = UDim2.fromScale(self.Settings.KeybindsPos.X, self.Settings.KeybindsPos.Y)
+    kbFrame.BackgroundColor3       = Color3.fromRGB(30, 30, 30)
+    kbFrame.BackgroundTransparency = 0.2
+    kbFrame.BorderSizePixel        = 0
+    kbFrame.Visible                = self.Settings.KeybindsEnabled
+    kbFrame.ZIndex                 = 10
+    kbFrame.Parent                 = screen
 
     local kbCorner = Instance.new("UICorner", kbFrame)
     kbCorner.CornerRadius = UDim.new(0, 6)
 
     local kbStroke = Instance.new("UIStroke", kbFrame)
-    kbStroke.Color = Color3.fromRGB(60, 60, 60)
     kbStroke.Thickness = 1
+    kbStroke.Color     = Color3.fromRGB(60, 60, 60)
 
     local kbTitle = Instance.new("TextLabel", kbFrame)
-    kbTitle.Size = UDim2.new(1, 0, 0, 24)
+    kbTitle.Size                   = UDim2.new(1, 0, 0, 22)
     kbTitle.BackgroundTransparency = 1
-    kbTitle.Font = Enum.Font.GothamBold
-    kbTitle.TextSize = 12
-    kbTitle.TextColor3 = Color3.fromRGB(255, 255, 255)
-    kbTitle.Text = "Keybinds"
+    kbTitle.Font                   = Enum.Font.GothamBold
+    kbTitle.TextSize               = 12
+    kbTitle.TextColor3             = Color3.fromRGB(240, 240, 240)
+    kbTitle.Text                   = "Keybinds"
+    kbTitle.ZIndex                 = 11
 
     local kbLine = Instance.new("Frame", kbFrame)
-    kbLine.Size = UDim2.new(1, -12, 0, 1)
-    kbLine.Position = UDim2.new(0, 6, 0, 24)
-    kbLine.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
-    kbLine.BorderSizePixel = 0
+    kbLine.Size             = UDim2.new(1, -12, 0, 1)
+    kbLine.Position         = UDim2.new(0, 6, 0, 22)
+    kbLine.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+    kbLine.BorderSizePixel  = 0
+    kbLine.ZIndex           = 11
 
     local kbContainer = Instance.new("Frame", kbFrame)
-    kbContainer.Position = UDim2.new(0, 6, 0, 28)
-    kbContainer.Size = UDim2.new(1, -12, 0, 0)
+    kbContainer.Position               = UDim2.new(0, 6, 0, 26)
+    kbContainer.Size                   = UDim2.new(1, -12, 0, 0)
     kbContainer.BackgroundTransparency = 1
+    kbContainer.ZIndex                 = 11
 
     local kbLayout = Instance.new("UIListLayout", kbContainer)
     kbLayout.SortOrder = Enum.SortOrder.LayoutOrder
-    kbLayout.Padding = UDim.new(0, 2)
+    kbLayout.Padding   = UDim.new(0, 2)
 
     self:MakeDraggable(kbFrame, function(relX, relY)
         self.Settings.KeybindsPos = { X = relX, Y = relY }
         self:SaveSettings()
     end)
 
-    self.Elements.KeybindsFrame = kbFrame
+    self.Elements.KeybindsFrame     = kbFrame
+    self.Elements.KeybindsTitle     = kbTitle
+    self.Elements.KeybindsLine      = kbLine
     self.Elements.KeybindsContainer = kbContainer
-    self.Elements.KeybindsStroke = kbStroke
+    self.Elements.KeybindsStroke    = kbStroke
 
-    -------------------------------------------------------------------
-    -- 3. РЕНДЕР-ЦИКЛ (Update Loop)
-    -------------------------------------------------------------------
-    local lastFpsUpdate = tick()
+    ---------------------------------------------------------------------------
+    -- RENDER LOOP (FPS, PING, KEYBINDS SYNC)
+    ---------------------------------------------------------------------------
+    local lastFpsCheck = tick()
     local fps = 60
 
-    RunService.RenderStepped:Connect(function(dt)
-        -- Обновление FPS / Ping / Time для Watermark
+    table.insert(self.Connections, RunService.RenderStepped:Connect(function(dt)
+        -- Watermark
         if self.Settings.WatermarkEnabled then
-            if tick() - lastFpsUpdate >= 0.3 then
+            if tick() - lastFpsCheck >= 0.25 then
                 fps = math.floor(1 / dt)
-                lastFpsUpdate = tick()
-                
-                local ping = math.floor(Stats.Network.ServerStatsItem["Data Ping"]:GetValue())
+                lastFpsCheck = tick()
+
+                local ping = 0
+                pcall(function()
+                    ping = math.floor(StatsService.Network.ServerStatsItem["Data Ping"]:GetValue())
+                end)
+
                 local timeStr = os.date("%H:%M:%S")
-                
-                local parts = { "Fluent" }
-                if self.Settings.WatermarkShowFPS then table.insert(parts, fps .. " FPS") end
+                local userStr = LocalPlayer and LocalPlayer.Name or "User"
+
+                local parts = {}
+                if self.Settings.WatermarkShowUser then table.insert(parts, userStr) end
+                if self.Settings.WatermarkShowFPS  then table.insert(parts, fps .. " FPS") end
                 if self.Settings.WatermarkShowPing then table.insert(parts, ping .. " ms") end
                 if self.Settings.WatermarkShowTime then table.insert(parts, timeStr) end
-                
+
+                if #parts == 0 then parts = { "Fluent" } end
+
                 wmText.Text = table.concat(parts, "  |  ")
-                local textBounds = wmText.TextBounds.X
-                wmFrame.Size = UDim2.fromOffset(math.max(160, textBounds + 20), 30)
+                local txtWidth = wmText.TextBounds.X
+                wmFrame.Size   = UDim2.fromOffset(math.max(120, txtWidth + 20), 28)
             end
         end
 
-        -- Обновление списка Keybinds из библиотеки Fluent
+        -- Keybinds Scanner (Безопасное считывание элементов)
         if self.Settings.KeybindsEnabled and self.Library and self.Library.Options then
             for _, child in ipairs(kbContainer:GetChildren()) do
                 if child:IsA("Frame") then child:Destroy() end
             end
 
+            local theme = self:GetThemeColors()
             local count = 0
-            for idx, option in pairs(self.Library.Options) do
-                if option.Type == "Keybind" and option.Value ~= "None" then
-                    local active = option:GetState()
-                    if active or self.EditMode then
+
+            for name, opt in pairs(self.Library.Options) do
+                if type(opt) == "table" and opt.Type == "Keybind" and opt.Value and opt.Value ~= "None" then
+                    local isActive = false
+                    pcall(function() isActive = opt:GetState() end)
+
+                    if isActive or self.Settings.KeybindsShowInactive or self.EditMode then
                         count = count + 1
-                        
+
                         local row = Instance.new("Frame")
-                        row.Size = UDim2.new(1, 0, 0, 16)
+                        row.Size                   = UDim2.new(1, 0, 0, 16)
                         row.BackgroundTransparency = 1
-                        row.Parent = kbContainer
+                        row.ZIndex                 = 12
+                        row.Parent                 = kbContainer
 
-                        local nameLbl = Instance.new("TextLabel", row)
-                        nameLbl.Size = UDim2.new(0.6, 0, 1, 0)
-                        nameLbl.BackgroundTransparency = 1
-                        nameLbl.Font = Enum.Font.Gotham
-                        nameLbl.TextSize = 11
-                        nameLbl.TextColor3 = Color3.fromRGB(200, 200, 200)
-                        nameLbl.TextXAlignment = Enum.TextXAlignment.Left
-                        nameLbl.Text = idx
+                        local lblName = Instance.new("TextLabel", row)
+                        lblName.Size                   = UDim2.new(0.65, 0, 1, 0)
+                        lblName.BackgroundTransparency = 1
+                        lblName.Font                   = Enum.Font.Gotham
+                        lblName.TextSize               = 11
+                        lblName.TextColor3             = theme.Text
+                        lblName.TextXAlignment         = Enum.TextXAlignment.Left
+                        lblName.Text                   = tostring(name)
+                        lblName.ZIndex                 = 12
 
-                        local valLbl = Instance.new("TextLabel", row)
-                        valLbl.Size = UDim2.new(0.4, 0, 1, 0)
-                        valLbl.Position = UDim2.new(0.6, 0, 0, 0)
+                        local modeStr = opt.Mode or "Toggle"
+                        local valLbl  = Instance.new("TextLabel", row)
+                        valLbl.Size                   = UDim2.new(0.35, 0, 1, 0)
+                        valLbl.Position               = UDim2.new(0.65, 0, 0, 0)
                         valLbl.BackgroundTransparency = 1
-                        valLbl.Font = Enum.Font.GothamMedium
-                        valLbl.TextSize = 11
-                        valLbl.TextColor3 = active and Color3.fromRGB(100, 255, 100) or Color3.fromRGB(150, 150, 150)
-                        valLbl.TextXAlignment = Enum.TextXAlignment.Right
-                        valLbl.Text = "[" .. tostring(option.Value) .. "]"
+                        valLbl.Font                   = Enum.Font.GothamMedium
+                        valLbl.TextSize               = 11
+                        valLbl.TextColor3             = isActive and theme.Accent or Color3.fromRGB(130, 130, 130)
+                        valLbl.TextXAlignment         = Enum.TextXAlignment.Right
+                        valLbl.Text                   = "[" .. tostring(opt.Value) .. "]"
+                        valLbl.ZIndex                 = 12
                     end
                 end
             end
 
-            kbFrame.Size = UDim2.fromOffset(180, 32 + (count * 18))
+            kbFrame.Size = UDim2.fromOffset(180, 30 + (count * 18))
         end
-    end)
+    end))
+
+    self:UpdateTheme()
 end
 
--- ===================================================================
--- Переключение Режима Редактирования HUD (Edit / Unlock Mode)
--- ===================================================================
+-- ═══════════════════════════════════════════════════════════════════════════
+-- 5. МОБИЛЬНЫЕ КНОПКИ (СТРОГО УПРАВЛЯЕМЫЕ ИЗ МЕНЮ ПО ПРИМЕРУ v2.3_OM.txt)
+-- ═══════════════════════════════════════════════════════════════════════════
+
+local MOB_ICONS = {
+    Menu     = "rbxassetid://7539983773",
+    Fly      = "rbxassetid://13288142767",
+    Speed    = "rbxassetid://6684648436",
+    Anim     = "rbxassetid://12099513379",
+    ART      = "rbxassetid://13145097542",
+    HideUI   = "rbxassetid://6473251976",
+    Teleport = "rbxassetid://12941020168",
+    AH       = "rbxassetid://10723395457",
+    Silver   = "rbxassetid://99162408431074",
+}
+
+function FluentHUD:CreateMobileButton(id, defaultPos, callback)
+    if not self.ScreenGui then self:InitVisuals() end
+
+    local cfg    = self.MobileSettings[id] or { Size = 50, Transp = 0, Enabled = true }
+    local sizePx = cfg.Size
+
+    local canvas = Instance.new("CanvasGroup")
+    canvas.Name                   = "MobBtn_" .. id
+    canvas.Active                 = true
+    canvas.Size                   = UDim2.fromOffset(sizePx, sizePx)
+    canvas.Position               = defaultPos
+    canvas.BackgroundTransparency = 1
+    canvas.GroupTransparency      = cfg.Transp / 100
+    canvas.Visible                = cfg.Enabled
+    canvas.ZIndex                 = 20
+    canvas.Parent                 = self.ScreenGui
+
+    local bgFrame = Instance.new("Frame", canvas)
+    bgFrame.Size                   = UDim2.new(1, -6, 1, -6)
+    bgFrame.AnchorPoint            = Vector2.new(0.5, 0.5)
+    bgFrame.Position               = UDim2.new(0.5, 0, 0.5, 0)
+    bgFrame.BorderSizePixel        = 0
+    bgFrame.BackgroundTransparency = 0.4
+    bgFrame.ZIndex                 = 21
+    Instance.new("UICorner", bgFrame).CornerRadius = UDim.new(1, 0)
+
+    local stroke = Instance.new("UIStroke", bgFrame)
+    stroke.Thickness = 2
+
+    local iconLabel = Instance.new("ImageLabel", canvas)
+    iconLabel.Size                   = UDim2.new(0.6, 0, 0.6, 0)
+    iconLabel.AnchorPoint            = Vector2.new(0.5, 0.5)
+    iconLabel.Position               = UDim2.new(0.5, 0, 0.5, 0)
+    iconLabel.BackgroundTransparency = 1
+    iconLabel.Image                  = MOB_ICONS[id] or ""
+    iconLabel.ZIndex                 = 22
+
+    local clickBtn = Instance.new("TextButton", canvas)
+    clickBtn.Size                   = UDim2.fromScale(1, 1)
+    clickBtn.BackgroundTransparency = 1
+    clickBtn.Text                   = ""
+    clickBtn.ZIndex                 = 25
+
+    local dragHitbox = Instance.new("TextButton", canvas)
+    dragHitbox.Size                   = UDim2.fromScale(1.2, 1.2)
+    dragHitbox.Position               = UDim2.fromScale(-0.1, -0.1)
+    dragHitbox.BackgroundColor3       = Color3.fromRGB(255, 180, 0)
+    dragHitbox.BackgroundTransparency = 0.6
+    dragHitbox.Text                   = "MOVE"
+    dragHitbox.Font                   = Enum.Font.GothamBold
+    dragHitbox.TextSize               = 9
+    dragHitbox.TextColor3             = Color3.fromRGB(0, 0, 0)
+    dragHitbox.Visible                = self.EditMode
+    dragHitbox.ZIndex                 = 30
+    Instance.new("UICorner", dragHitbox).CornerRadius = UDim.new(1, 0)
+
+    local isActive = false
+
+    local function ApplyColors()
+        local theme = self:GetThemeColors()
+        bgFrame.BackgroundColor3 = isActive and theme.Accent or theme.Main
+        stroke.Color             = isActive and theme.Text or theme.Stroke
+        iconLabel.ImageColor3    = theme.Text
+    end
+
+    clickBtn.MouseButton1Click:Connect(function()
+        if not self.EditMode and callback then callback() end
+    end)
+
+    self:MakeDraggable(canvas, function(relX, relY)
+        -- Перетаскивание мобильных кнопок
+    end)
+
+    ApplyColors()
+
+    self.MobileButtons[id] = {
+        Canvas       = canvas,
+        UpdateColors = ApplyColors,
+        SetState     = function(val) isActive = val; ApplyColors() end,
+        UpdateConfig = function()
+            local c = self.MobileSettings[id]
+            if c then
+                canvas.Size              = UDim2.fromOffset(c.Size, c.Size)
+                canvas.GroupTransparency = c.Transp / 100
+                canvas.Visible           = c.Enabled
+            end
+        end,
+        SetDragMode  = function(state)
+            dragHitbox.Visible = state
+        end
+    }
+end
+
+-- ═══════════════════════════════════════════════════════════════════════════
+-- 6. РЕЖИМ РЕДАКТИРОВАНИЯ ЭКРАННЫХ ЭЛЕМЕНТОВ (EDIT DRAG MODE)
+-- ═══════════════════════════════════════════════════════════════════════════
+
 function FluentHUD:SetEditMode(state)
     self.EditMode = state
-    local strokeColor = state and Color3.fromRGB(255, 170, 0) or Color3.fromRGB(60, 60, 60)
-    
+    local theme = self:GetThemeColors()
+
+    local highlightColor = state and Color3.fromRGB(255, 180, 0) or theme.Stroke
+
     if self.Elements.WatermarkStroke then
-        self.Elements.WatermarkStroke.Color = strokeColor
+        self.Elements.WatermarkStroke.Color     = highlightColor
         self.Elements.WatermarkStroke.Thickness = state and 2 or 1
     end
-    
+
     if self.Elements.KeybindsStroke then
-        self.Elements.KeybindsStroke.Color = strokeColor
+        self.Elements.KeybindsStroke.Color     = highlightColor
         self.Elements.KeybindsStroke.Thickness = state and 2 or 1
+    end
+
+    for _, btn in pairs(self.MobileButtons) do
+        if btn.SetDragMode then btn.SetDragMode(state) end
     end
 end
 
--- ===================================================================
--- Создание секции настроек в интерфейсе Fluent
--- ===================================================================
+-- ═══════════════════════════════════════════════════════════════════════════
+-- 7. СБОРКА СЕКЦИИ НАСТРОЕК В МЕНЮ FLUENT
+-- ═══════════════════════════════════════════════════════════════════════════
+
 function FluentHUD:BuildHUDSection(tab)
     assert(self.Library, "Must set FluentHUD.Library before building section!")
     self:LoadSettings()
     self:InitVisuals()
 
-    local section = tab:AddSection("HUD & Overlay Controls")
+    local section = tab:AddSection("HUD & Overlay Manager")
 
-    -- 1. Кнопка Разблокировки Позиций (Перетаскивание мышкой)
-    section:AddToggle("FluentHUD_EditMode", {
-        Title = "Unlock HUD Drag Positions",
-        Description = "Позволяет двигать Водяной знак и Бинды мышкой по экрану.",
-        Default = self.EditMode,
-        Callback = function(Value)
-            self:SetEditMode(Value)
-        end
+    -- 1. Драг режим
+    section:AddToggle("HUD_EditMode", {
+        Title       = "Unlock HUD Drag Positions",
+        Description = "Разблокирует оверлеи для перетаскивания мышкой.",
+        Default     = self.EditMode,
+        Callback    = function(val) self:SetEditMode(val) end
     })
 
-    -- 2. Переключатели Watermark
-    section:AddToggle("FluentHUD_WatermarkToggle", {
-        Title = "Show Watermark",
-        Description = "Отображает инфо-панель на экране.",
-        Default = self.Settings.WatermarkEnabled,
-        Callback = function(Value)
-            self.Settings.WatermarkEnabled = Value
-            if self.Elements.WatermarkFrame then
-                self.Elements.WatermarkFrame.Visible = Value
-            end
+    -- 2. Watermark
+    section:AddToggle("HUD_WM_Enable", {
+        Title       = "Show Watermark",
+        Default     = self.Settings.WatermarkEnabled,
+        Callback    = function(val)
+            self.Settings.WatermarkEnabled = val
+            if self.Elements.WatermarkFrame then self.Elements.WatermarkFrame.Visible = val end
             self:SaveSettings()
         end
     })
 
-    section:AddToggle("FluentHUD_WM_FPS", {
-        Title = "Watermark: Show FPS",
-        Default = self.Settings.WatermarkShowFPS,
-        Callback = function(Value)
-            self.Settings.WatermarkShowFPS = Value
+    section:AddToggle("HUD_WM_FPS",  { Title = "Watermark: Show FPS",  Default = self.Settings.WatermarkShowFPS,  Callback = function(v) self.Settings.WatermarkShowFPS = v; self:SaveSettings() end })
+    section:AddToggle("HUD_WM_Ping", { Title = "Watermark: Show Ping", Default = self.Settings.WatermarkShowPing, Callback = function(v) self.Settings.WatermarkShowPing = v; self:SaveSettings() end })
+    section:AddToggle("HUD_WM_Time", { Title = "Watermark: Show Time", Default = self.Settings.WatermarkShowTime, Callback = function(v) self.Settings.WatermarkShowTime = v; self:SaveSettings() end })
+    section:AddToggle("HUD_WM_User", { Title = "Watermark: Show User", Default = self.Settings.WatermarkShowUser, Callback = function(v) self.Settings.WatermarkShowUser = v; self:SaveSettings() end })
+
+    -- 3. Keybinds List
+    section:AddToggle("HUD_KB_Enable", {
+        Title       = "Show Keybinds Overlay",
+        Default     = self.Settings.KeybindsEnabled,
+        Callback    = function(val)
+            self.Settings.KeybindsEnabled = val
+            if self.Elements.KeybindsFrame then self.Elements.KeybindsFrame.Visible = val end
             self:SaveSettings()
         end
     })
 
-    section:AddToggle("FluentHUD_WM_Ping", {
-        Title = "Watermark: Show Ping",
-        Default = self.Settings.WatermarkShowPing,
-        Callback = function(Value)
-            self.Settings.WatermarkShowPing = Value
+    section:AddToggle("HUD_KB_Inactive", {
+        Title       = "Show Inactive Keybinds",
+        Description = "Отображает отключенные бинды серого цвета.",
+        Default     = self.Settings.KeybindsShowInactive,
+        Callback    = function(val)
+            self.Settings.KeybindsShowInactive = val
             self:SaveSettings()
         end
     })
 
-    section:AddToggle("FluentHUD_WM_Time", {
-        Title = "Watermark: Show Time",
-        Default = self.Settings.WatermarkShowTime,
-        Callback = function(Value)
-            self.Settings.WatermarkShowTime = Value
-            self:SaveSettings()
-        end
-    })
-
-    -- 3. Настройки Keybind Overlay
-    section:AddToggle("FluentHUD_KeybindsToggle", {
-        Title = "Show Keybinds List",
-        Description = "Отображает список активных клавиш.",
-        Default = self.Settings.KeybindsEnabled,
-        Callback = function(Value)
-            self.Settings.KeybindsEnabled = Value
-            if self.Elements.KeybindsFrame then
-                self.Elements.KeybindsFrame.Visible = Value
-            end
-            self:SaveSettings()
-        end
-    })
-
-    -- 4. Сброс позиций HUD
+    -- 4. Сброс
     section:AddButton({
-        Title = "Reset HUD Positions",
-        Description = "Сбрасывает координаты элементов по умолчанию.",
-        Callback = function()
-            self.Settings.WatermarkPos = { X = 0.8, Y = 0.02 }
-            self.Settings.KeybindsPos = { X = 0.02, Y = 0.4 }
-            
-            if self.Elements.WatermarkFrame then
-                self.Elements.WatermarkFrame.Position = UDim2.fromScale(0.8, 0.02)
-            end
-            if self.Elements.KeybindsFrame then
-                self.Elements.KeybindsFrame.Position = UDim2.fromScale(0.02, 0.4)
-            end
-            
+        Title       = "Reset HUD Positions",
+        Description = "Сбрасывает координаты оверлеев по умолчанию.",
+        Callback    = function()
+            self.Settings.WatermarkPos = { X = 0.78, Y = 0.02 }
+            self.Settings.KeybindsPos = { X = 0.02, Y = 0.35 }
+            if self.Elements.WatermarkFrame then self.Elements.WatermarkFrame.Position = UDim2.fromScale(0.78, 0.02) end
+            if self.Elements.KeybindsFrame then self.Elements.KeybindsFrame.Position = UDim2.fromScale(0.02, 0.35) end
             self:SaveSettings()
         end
     })
+end
+
+-- Сборка настроек мобильных кнопок строго в меню (по примеру из v2.3_OM.txt)
+function FluentHUD:BuildMobileSection(tab)
+    local sec = tab:AddSection("Mobile Button Controls")
+
+    sec:AddToggle("Mob_EditMode", {
+        Title    = "Edit Mode (Drag Buttons)",
+        Default  = self.EditMode,
+        Callback = function(val) self:SetEditMode(val) end
+    })
+
+    local function AddBtnEditor(id)
+        sec:AddParagraph({ Title = id .. " Button", Content = "" })
+
+        sec:AddSlider("MobSize_" .. id, {
+            Title   = id .. " Size (px)",
+            Default = self.MobileSettings[id] and self.MobileSettings[id].Size or 50,
+            Min = 20, Max = 100, Rounding = 0,
+            Callback = function(v)
+                if not self.MobileSettings[id] then self.MobileSettings[id] = {} end
+                self.MobileSettings[id].Size = v
+                if self.MobileButtons[id] then self.MobileButtons[id].UpdateConfig() end
+                self:SaveSettings()
+            end
+        })
+
+        sec:AddSlider("MobTransp_" .. id, {
+            Title   = id .. " Transparency %",
+            Default = self.MobileSettings[id] and self.MobileSettings[id].Transp or 0,
+            Min = 0, Max = 100, Rounding = 0,
+            Callback = function(v)
+                if not self.MobileSettings[id] then self.MobileSettings[id] = {} end
+                self.MobileSettings[id].Transp = v
+                if self.MobileButtons[id] then self.MobileButtons[id].UpdateConfig() end
+                self:SaveSettings()
+            end
+        })
+
+        sec:AddToggle("MobEnable_" .. id, {
+            Title   = "Show " .. id .. " Button",
+            Default = self.MobileSettings[id] and self.MobileSettings[id].Enabled or true,
+            Callback = function(v)
+                if not self.MobileSettings[id] then self.MobileSettings[id] = {} end
+                self.MobileSettings[id].Enabled = v
+                if self.MobileButtons[id] then self.MobileButtons[id].UpdateConfig() end
+                self:SaveSettings()
+            end
+        })
+    end
+
+    local btnList = { "Menu", "HideUI", "Fly", "Speed", "ART", "Teleport", "AH", "Anim", "Silver" }
+    for _, btnName in ipairs(btnList) do
+        AddBtnEditor(btnName)
+    end
 end
 
 return FluentHUD
