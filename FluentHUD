@@ -1,5 +1,5 @@
 -- ═══════════════════════════════════════════════════════════════════════════
--- FLUENT HUD ADDON v2.0 — REWRITTEN FROM SCRATCH
+-- FLUENT HUD ADDON v2.5 — REWRITTEN FROM SCRATCH
 -- ═══════════════════════════════════════════════════════════════════════════
 
 local UserInputService   = game:GetService("UserInputService")
@@ -14,25 +14,22 @@ local LocalPlayer = Players.LocalPlayer
 local Camera      = Workspace.CurrentCamera
 
 local FluentHUD = {
-    Folder = "FluentSettings",
-    Library = nil,
+    Folder   = "FluentSettings",
+    Library  = nil,
     EditMode = false,
     
     Settings = {
-        -- Watermark
         WatermarkEnabled  = true,
-        WatermarkPos      = { X = 0.78, Y = 0.02 },
+        WatermarkPos      = { X = 0.75, Y = 0.02 },
         WatermarkShowFPS  = true,
         WatermarkShowPing = true,
         WatermarkShowTime = true,
         WatermarkShowUser = true,
 
-        -- Keybinds
         KeybindsEnabled      = true,
         KeybindsPos          = { X = 0.02, Y = 0.35 },
         KeybindsShowInactive = false,
 
-        -- Theme & Colors
         UseThemeColor = true,
         CustomAccent  = Color3.fromRGB(96, 205, 255),
     },
@@ -49,13 +46,25 @@ local FluentHUD = {
         Silver   = { Size = 50, Transp = 0, Enabled = true },
     },
 
-    Elements = {},
+    Elements      = {},
     MobileButtons = {},
-    Connections = {}
+    Connections   = {}
+}
+
+local MOB_ICONS = {
+    Menu     = "rbxassetid://7539983773",
+    Fly      = "rbxassetid://13288142767",
+    Speed    = "rbxassetid://6684648436",
+    Anim     = "rbxassetid://12099513379",
+    ART      = "rbxassetid://13145097542",
+    HideUI   = "rbxassetid://6473251976",
+    Teleport = "rbxassetid://12941020168",
+    AH       = "rbxassetid://10723395457",
+    Silver   = "rbxassetid://99162408431074",
 }
 
 -- ═══════════════════════════════════════════════════════════════════════════
--- 1. СИСТЕМА ДИНАМИЧЕСКИХ ЦВЕТОВ И ТЕМ
+-- 1. ДИНАМИЧЕСКИЕ ЦВЕТА И ТЕМЫ
 -- ═══════════════════════════════════════════════════════════════════════════
 
 function FluentHUD:GetThemeColors()
@@ -64,8 +73,7 @@ function FluentHUD:GetThemeColors()
             Accent = self.Settings.CustomAccent,
             Main   = Color3.fromRGB(25, 25, 25),
             Text   = Color3.fromRGB(240, 240, 240),
-            Stroke = Color3.fromRGB(60, 60, 60),
-            Holder = Color3.fromRGB(15, 15, 15)
+            Stroke = Color3.fromRGB(60, 60, 60)
         }
     end
 
@@ -74,36 +82,19 @@ function FluentHUD:GetThemeColors()
         Accent = Color3.fromRGB(96, 205, 255),
         Main   = Color3.fromRGB(30, 30, 30),
         Text   = Color3.fromRGB(240, 240, 240),
-        Stroke = Color3.fromRGB(60, 60, 60),
-        Holder = Color3.fromRGB(20, 20, 20)
+        Stroke = Color3.fromRGB(60, 60, 60)
     }
 
     if themeName == "Light" then
-        colors.Accent = Color3.fromRGB(0, 103, 192)
-        colors.Main   = Color3.fromRGB(235, 235, 235)
-        colors.Text   = Color3.fromRGB(20, 20, 20)
-        colors.Stroke = Color3.fromRGB(180, 180, 180)
-        colors.Holder = Color3.fromRGB(210, 210, 210)
+        colors.Accent = Color3.fromRGB(0, 103, 192); colors.Main = Color3.fromRGB(230, 230, 230); colors.Text = Color3.fromRGB(20, 20, 20); colors.Stroke = Color3.fromRGB(180, 180, 180)
     elseif themeName == "Darker" then
-        colors.Accent = Color3.fromRGB(72, 138, 182)
-        colors.Main   = Color3.fromRGB(20, 20, 20)
-        colors.Stroke = Color3.fromRGB(45, 45, 45)
-        colors.Holder = Color3.fromRGB(12, 12, 12)
+        colors.Accent = Color3.fromRGB(72, 138, 182); colors.Main = Color3.fromRGB(20, 20, 20); colors.Stroke = Color3.fromRGB(45, 45, 45)
     elseif themeName == "Aqua" then
-        colors.Accent = Color3.fromRGB(60, 165, 165)
-        colors.Main   = Color3.fromRGB(25, 45, 45)
-        colors.Stroke = Color3.fromRGB(50, 95, 95)
-        colors.Holder = Color3.fromRGB(15, 30, 30)
+        colors.Accent = Color3.fromRGB(60, 165, 165); colors.Main = Color3.fromRGB(25, 45, 45); colors.Stroke = Color3.fromRGB(50, 95, 95)
     elseif themeName == "Amethyst" then
-        colors.Accent = Color3.fromRGB(97, 62, 167)
-        colors.Main   = Color3.fromRGB(35, 25, 50)
-        colors.Stroke = Color3.fromRGB(80, 55, 115)
-        colors.Holder = Color3.fromRGB(20, 15, 30)
+        colors.Accent = Color3.fromRGB(97, 62, 167); colors.Main = Color3.fromRGB(35, 25, 50); colors.Stroke = Color3.fromRGB(80, 55, 115)
     elseif themeName == "Rose" then
-        colors.Accent = Color3.fromRGB(180, 55, 90)
-        colors.Main   = Color3.fromRGB(40, 25, 30)
-        colors.Stroke = Color3.fromRGB(110, 50, 70)
-        colors.Holder = Color3.fromRGB(25, 15, 20)
+        colors.Accent = Color3.fromRGB(180, 55, 90); colors.Main = Color3.fromRGB(40, 25, 30); colors.Stroke = Color3.fromRGB(110, 50, 70)
     end
 
     return colors
@@ -115,31 +106,28 @@ function FluentHUD:UpdateTheme()
     if self.Elements.WatermarkFrame then
         self.Elements.WatermarkFrame.BackgroundColor3 = theme.Main
         self.Elements.WatermarkText.TextColor3         = theme.Text
-        if not self.EditMode then
-            self.Elements.WatermarkStroke.Color = theme.Stroke
-        end
+        if not self.EditMode then self.Elements.WatermarkStroke.Color = theme.Stroke end
     end
 
     if self.Elements.KeybindsFrame then
         self.Elements.KeybindsFrame.BackgroundColor3 = theme.Main
         self.Elements.KeybindsTitle.TextColor3       = theme.Text
         self.Elements.KeybindsLine.BackgroundColor3  = theme.Stroke
-        if not self.EditMode then
-            self.Elements.KeybindsStroke.Color = theme.Stroke
-        end
+        if not self.EditMode then self.Elements.KeybindsStroke.Color = theme.Stroke end
     end
 
-    for id, btn in pairs(self.MobileButtons) do
+    for _, btn in pairs(self.MobileButtons) do
         if btn.UpdateColors then btn.UpdateColors() end
     end
 end
 
 -- ═══════════════════════════════════════════════════════════════════════════
--- 2. БЕЗЛАГОВЫЙ ДВИЖОК DRAG (БЕЗ СКАЧКОВ И РЫВКОВ)
+-- 2. ИСПРАВЛЕННЫЙ ДВИЖОК DRAG (БЕЗ ПРЫЖКОВ ПРИ КЛИКЕ)
 -- ═══════════════════════════════════════════════════════════════════════════
 
 function FluentHUD:MakeDraggable(frame, onReleaseCallback)
-    frame.Active = true -- Блокировка пробития клика в игру
+    frame.Active = true
+    frame.Selectable = true
 
     local dragging = false
     local dragOffset = Vector2.zero
@@ -147,8 +135,6 @@ function FluentHUD:MakeDraggable(frame, onReleaseCallback)
     frame.InputBegan:Connect(function(input)
         if (input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch) then
             dragging = true
-            
-            -- Точный расчет смещения клика относительно рамки (исключает прыжок)
             local mousePos = Vector2.new(input.Position.X, input.Position.Y)
             dragOffset = mousePos - frame.AbsolutePosition
 
@@ -185,7 +171,7 @@ function FluentHUD:MakeDraggable(frame, onReleaseCallback)
 end
 
 -- ═══════════════════════════════════════════════════════════════════════════
--- 3. СОХРАНЕНИЕ И ЗАГРУЗКА НАСТРОЕК
+-- 3. СОХРАНЕНИЕ И ЗАГРУЗКА CONFIG
 -- ═══════════════════════════════════════════════════════════════════════════
 
 function FluentHUD:SetFolder(folder)
@@ -198,7 +184,7 @@ end
 
 function FluentHUD:SaveSettings()
     if not isfolder(self.Folder) then pcall(makefolder, self.Folder) end
-    local cfgPath = self.Folder .. "/hud_v2_settings.json"
+    local cfgPath = self.Folder .. "/hud_settings.json"
     local data = {
         Settings = self.Settings,
         Mobile   = self.MobileSettings
@@ -207,37 +193,32 @@ function FluentHUD:SaveSettings()
 end
 
 function FluentHUD:LoadSettings()
-    local cfgPath = self.Folder .. "/hud_v2_settings.json"
+    local cfgPath = self.Folder .. "/hud_settings.json"
     if isfile and isfile(cfgPath) then
         local success, decoded = pcall(HttpService.JSONDecode, HttpService, readfile(cfgPath))
         if success and type(decoded) == "table" then
-            if decoded.Settings then
-                for k, v in pairs(decoded.Settings) do self.Settings[k] = v end
-            end
-            if decoded.Mobile then
-                for k, v in pairs(decoded.Mobile) do self.MobileSettings[k] = v end
-            end
+            if decoded.Settings then for k, v in pairs(decoded.Settings) do self.Settings[k] = v end end
+            if decoded.Mobile then for k, v in pairs(decoded.Mobile) do self.MobileSettings[k] = v end end
         end
     end
 end
 
 -- ═══════════════════════════════════════════════════════════════════════════
--- 4. СОЗДАНИЕ GUI И ОВЕРЛЕЕВ (WATERMARK, KEYBINDS, MOBILE OVERLAY)
+-- 4. СОЗДАНИЕ ОВЕРЛЕЕВ (WATERMARK, KEYBINDS)
 -- ═══════════════════════════════════════════════════════════════════════════
 
 function FluentHUD:InitVisuals()
     if self.ScreenGui then return end
 
+    local parentContainer = CoreGui:FindFirstChild("RobloxGui") or CoreGui
     local screen = Instance.new("ScreenGui")
-    screen.Name           = "FluentHUD_Overlay_v2"
+    screen.Name           = "FluentHUD_CoreOverlay"
     screen.ResetOnSpawn   = false
     screen.IgnoreGuiInset = true
     screen.DisplayOrder   = 100
     screen.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-    screen.Parent         = CoreGui
+    pcall(function() screen.Parent = parentContainer end)
     self.ScreenGui        = screen
-
-    local vp = Camera.ViewportSize
 
     ---------------------------------------------------------------------------
     -- WATERMARK
@@ -254,9 +235,7 @@ function FluentHUD:InitVisuals()
     wmFrame.ZIndex                 = 10
     wmFrame.Parent                 = screen
 
-    local wmCorner = Instance.new("UICorner", wmFrame)
-    wmCorner.CornerRadius = UDim.new(0, 6)
-
+    Instance.new("UICorner", wmFrame).CornerRadius = UDim.new(0, 6)
     local wmStroke = Instance.new("UIStroke", wmFrame)
     wmStroke.Thickness = 1
     wmStroke.Color     = Color3.fromRGB(60, 60, 60)
@@ -267,7 +246,7 @@ function FluentHUD:InitVisuals()
     wmText.Font                   = Enum.Font.GothamMedium
     wmText.TextSize               = 12
     wmText.TextColor3             = Color3.fromRGB(240, 240, 240)
-    wmText.Text                   = "Fluent | Init..."
+    wmText.Text                   = "FluentHUD | Init..."
     wmText.ZIndex                 = 11
 
     self:MakeDraggable(wmFrame, function(relX, relY)
@@ -280,7 +259,7 @@ function FluentHUD:InitVisuals()
     self.Elements.WatermarkStroke = wmStroke
 
     ---------------------------------------------------------------------------
-    -- KEYBINDS OVERLAY (ИСПРАВЛЕННЫЙ СМОТР И СМОТР ПОЗИЦИИ)
+    -- KEYBINDS OVERLAY
     ---------------------------------------------------------------------------
     local kbFrame = Instance.new("Frame")
     kbFrame.Name                   = "Keybinds"
@@ -294,9 +273,7 @@ function FluentHUD:InitVisuals()
     kbFrame.ZIndex                 = 10
     kbFrame.Parent                 = screen
 
-    local kbCorner = Instance.new("UICorner", kbFrame)
-    kbCorner.CornerRadius = UDim.new(0, 6)
-
+    Instance.new("UICorner", kbFrame).CornerRadius = UDim.new(0, 6)
     local kbStroke = Instance.new("UIStroke", kbFrame)
     kbStroke.Thickness = 1
     kbStroke.Color     = Color3.fromRGB(60, 60, 60)
@@ -339,7 +316,7 @@ function FluentHUD:InitVisuals()
     self.Elements.KeybindsStroke    = kbStroke
 
     ---------------------------------------------------------------------------
-    -- RENDER LOOP (FPS, PING, KEYBINDS SYNC)
+    -- RENDER LOOP (FPS, PING, KEYBINDS REALTIME SCANNER)
     ---------------------------------------------------------------------------
     local lastFpsCheck = tick()
     local fps = 60
@@ -352,20 +329,16 @@ function FluentHUD:InitVisuals()
                 lastFpsCheck = tick()
 
                 local ping = 0
-                pcall(function()
-                    ping = math.floor(StatsService.Network.ServerStatsItem["Data Ping"]:GetValue())
-                end)
+                pcall(function() ping = math.floor(StatsService.Network.ServerStatsItem["Data Ping"]:GetValue()) end)
 
                 local timeStr = os.date("%H:%M:%S")
                 local userStr = LocalPlayer and LocalPlayer.Name or "User"
 
-                local parts = {}
+                local parts = { "Fluent" }
                 if self.Settings.WatermarkShowUser then table.insert(parts, userStr) end
                 if self.Settings.WatermarkShowFPS  then table.insert(parts, fps .. " FPS") end
                 if self.Settings.WatermarkShowPing then table.insert(parts, ping .. " ms") end
                 if self.Settings.WatermarkShowTime then table.insert(parts, timeStr) end
-
-                if #parts == 0 then parts = { "Fluent" } end
 
                 wmText.Text = table.concat(parts, "  |  ")
                 local txtWidth = wmText.TextBounds.X
@@ -373,7 +346,7 @@ function FluentHUD:InitVisuals()
             end
         end
 
-        -- Keybinds Scanner (Безопасное считывание элементов)
+        -- Keybinds Scanner
         if self.Settings.KeybindsEnabled and self.Library and self.Library.Options then
             for _, child in ipairs(kbContainer:GetChildren()) do
                 if child:IsA("Frame") then child:Destroy() end
@@ -385,7 +358,13 @@ function FluentHUD:InitVisuals()
             for name, opt in pairs(self.Library.Options) do
                 if type(opt) == "table" and opt.Type == "Keybind" and opt.Value and opt.Value ~= "None" then
                     local isActive = false
-                    pcall(function() isActive = opt:GetState() end)
+                    pcall(function()
+                        if type(opt.GetState) == "function" then
+                            isActive = opt:GetState()
+                        elseif opt.Toggled ~= nil then
+                            isActive = opt.Toggled
+                        end
+                    end)
 
                     if isActive or self.Settings.KeybindsShowInactive or self.EditMode then
                         count = count + 1
@@ -406,8 +385,7 @@ function FluentHUD:InitVisuals()
                         lblName.Text                   = tostring(name)
                         lblName.ZIndex                 = 12
 
-                        local modeStr = opt.Mode or "Toggle"
-                        local valLbl  = Instance.new("TextLabel", row)
+                        local valLbl = Instance.new("TextLabel", row)
                         valLbl.Size                   = UDim2.new(0.35, 0, 1, 0)
                         valLbl.Position               = UDim2.new(0.65, 0, 0, 0)
                         valLbl.BackgroundTransparency = 1
@@ -429,20 +407,8 @@ function FluentHUD:InitVisuals()
 end
 
 -- ═══════════════════════════════════════════════════════════════════════════
--- 5. МОБИЛЬНЫЕ КНОПКИ (СТРОГО УПРАВЛЯЕМЫЕ ИЗ МЕНЮ ПО ПРИМЕРУ v2.3_OM.txt)
+-- 5. МОБИЛЬНЫЕ КНОПКИ (СОЗДАНИЕ)
 -- ═══════════════════════════════════════════════════════════════════════════
-
-local MOB_ICONS = {
-    Menu     = "rbxassetid://7539983773",
-    Fly      = "rbxassetid://13288142767",
-    Speed    = "rbxassetid://6684648436",
-    Anim     = "rbxassetid://12099513379",
-    ART      = "rbxassetid://13145097542",
-    HideUI   = "rbxassetid://6473251976",
-    Teleport = "rbxassetid://12941020168",
-    AH       = "rbxassetid://10723395457",
-    Silver   = "rbxassetid://99162408431074",
-}
 
 function FluentHUD:CreateMobileButton(id, defaultPos, callback)
     if not self.ScreenGui then self:InitVisuals() end
@@ -513,9 +479,7 @@ function FluentHUD:CreateMobileButton(id, defaultPos, callback)
         if not self.EditMode and callback then callback() end
     end)
 
-    self:MakeDraggable(canvas, function(relX, relY)
-        -- Перетаскивание мобильных кнопок
-    end)
+    self:MakeDraggable(canvas, function(relX, relY) end)
 
     ApplyColors()
 
@@ -537,14 +501,9 @@ function FluentHUD:CreateMobileButton(id, defaultPos, callback)
     }
 end
 
--- ═══════════════════════════════════════════════════════════════════════════
--- 6. РЕЖИМ РЕДАКТИРОВАНИЯ ЭКРАННЫХ ЭЛЕМЕНТОВ (EDIT DRAG MODE)
--- ═══════════════════════════════════════════════════════════════════════════
-
 function FluentHUD:SetEditMode(state)
     self.EditMode = state
     local theme = self:GetThemeColors()
-
     local highlightColor = state and Color3.fromRGB(255, 180, 0) or theme.Stroke
 
     if self.Elements.WatermarkStroke then
@@ -563,17 +522,25 @@ function FluentHUD:SetEditMode(state)
 end
 
 -- ═══════════════════════════════════════════════════════════════════════════
--- 7. СБОРКА СЕКЦИИ НАСТРОЕК В МЕНЮ FLUENT
+-- 6. БЕЗОПАСНЫЕ СБОРЩИКИ СЕКЦИЙ (ЗАЩИТА ОТ ОШИБКИ AddSection)
 -- ═══════════════════════════════════════════════════════════════════════════
 
-function FluentHUD:BuildHUDSection(tab)
-    assert(self.Library, "Must set FluentHUD.Library before building section!")
+-- Вспомогательная функция: гарантирует получение Section не вызывая ошибку AddSection
+local function GetOrCreateSection(target, sectionTitle)
+    if type(target) == "table" then
+        if type(target.AddSection) == "function" then
+            return target:AddSection(sectionTitle)
+        end
+    end
+    return target -- УЖЕ СЕКЦИЯ, возвращаем напрямую
+end
+
+function FluentHUD:BuildHUDSection(tabOrSection)
     self:LoadSettings()
     self:InitVisuals()
 
-    local section = tab:AddSection("HUD & Overlay Manager")
+    local section = GetOrCreateSection(tabOrSection, "HUD & Overlay Settings")
 
-    -- 1. Драг режим
     section:AddToggle("HUD_EditMode", {
         Title       = "Unlock HUD Drag Positions",
         Description = "Разблокирует оверлеи для перетаскивания мышкой.",
@@ -581,11 +548,10 @@ function FluentHUD:BuildHUDSection(tab)
         Callback    = function(val) self:SetEditMode(val) end
     })
 
-    -- 2. Watermark
     section:AddToggle("HUD_WM_Enable", {
-        Title       = "Show Watermark",
-        Default     = self.Settings.WatermarkEnabled,
-        Callback    = function(val)
+        Title   = "Show Watermark",
+        Default = self.Settings.WatermarkEnabled,
+        Callback = function(val)
             self.Settings.WatermarkEnabled = val
             if self.Elements.WatermarkFrame then self.Elements.WatermarkFrame.Visible = val end
             self:SaveSettings()
@@ -595,13 +561,11 @@ function FluentHUD:BuildHUDSection(tab)
     section:AddToggle("HUD_WM_FPS",  { Title = "Watermark: Show FPS",  Default = self.Settings.WatermarkShowFPS,  Callback = function(v) self.Settings.WatermarkShowFPS = v; self:SaveSettings() end })
     section:AddToggle("HUD_WM_Ping", { Title = "Watermark: Show Ping", Default = self.Settings.WatermarkShowPing, Callback = function(v) self.Settings.WatermarkShowPing = v; self:SaveSettings() end })
     section:AddToggle("HUD_WM_Time", { Title = "Watermark: Show Time", Default = self.Settings.WatermarkShowTime, Callback = function(v) self.Settings.WatermarkShowTime = v; self:SaveSettings() end })
-    section:AddToggle("HUD_WM_User", { Title = "Watermark: Show User", Default = self.Settings.WatermarkShowUser, Callback = function(v) self.Settings.WatermarkShowUser = v; self:SaveSettings() end })
 
-    -- 3. Keybinds List
     section:AddToggle("HUD_KB_Enable", {
-        Title       = "Show Keybinds Overlay",
-        Default     = self.Settings.KeybindsEnabled,
-        Callback    = function(val)
+        Title   = "Show Keybinds Overlay",
+        Default = self.Settings.KeybindsEnabled,
+        Callback = function(val)
             self.Settings.KeybindsEnabled = val
             if self.Elements.KeybindsFrame then self.Elements.KeybindsFrame.Visible = val end
             self:SaveSettings()
@@ -610,7 +574,7 @@ function FluentHUD:BuildHUDSection(tab)
 
     section:AddToggle("HUD_KB_Inactive", {
         Title       = "Show Inactive Keybinds",
-        Description = "Отображает отключенные бинды серого цвета.",
+        Description = "Показывает выключенные клавиши серым цветом.",
         Default     = self.Settings.KeybindsShowInactive,
         Callback    = function(val)
             self.Settings.KeybindsShowInactive = val
@@ -618,32 +582,30 @@ function FluentHUD:BuildHUDSection(tab)
         end
     })
 
-    -- 4. Сброс
     section:AddButton({
         Title       = "Reset HUD Positions",
-        Description = "Сбрасывает координаты оверлеев по умолчанию.",
+        Description = "Сброс координат на стандартные.",
         Callback    = function()
-            self.Settings.WatermarkPos = { X = 0.78, Y = 0.02 }
+            self.Settings.WatermarkPos = { X = 0.75, Y = 0.02 }
             self.Settings.KeybindsPos = { X = 0.02, Y = 0.35 }
-            if self.Elements.WatermarkFrame then self.Elements.WatermarkFrame.Position = UDim2.fromScale(0.78, 0.02) end
+            if self.Elements.WatermarkFrame then self.Elements.WatermarkFrame.Position = UDim2.fromScale(0.75, 0.02) end
             if self.Elements.KeybindsFrame then self.Elements.KeybindsFrame.Position = UDim2.fromScale(0.02, 0.35) end
             self:SaveSettings()
         end
     })
 end
 
--- Сборка настроек мобильных кнопок строго в меню (по примеру из v2.3_OM.txt)
-function FluentHUD:BuildMobileSection(tab)
-    local sec = tab:AddSection("Mobile Button Controls")
+function FluentHUD:BuildMobileSection(tabOrSection)
+    local sec = GetOrCreateSection(tabOrSection, "Mobile Button Controls")
 
-    sec:AddToggle("Mob_EditMode", {
+    sec:AddToggle("Mob_EditMode_Tab", {
         Title    = "Edit Mode (Drag Buttons)",
         Default  = self.EditMode,
         Callback = function(val) self:SetEditMode(val) end
     })
 
     local function AddBtnEditor(id)
-        sec:AddParagraph({ Title = id .. " Button", Content = "" })
+        sec:AddParagraph({ Title = id .. " Button Controls", Content = "" })
 
         sec:AddSlider("MobSize_" .. id, {
             Title   = id .. " Size (px)",
@@ -682,9 +644,7 @@ function FluentHUD:BuildMobileSection(tab)
     end
 
     local btnList = { "Menu", "HideUI", "Fly", "Speed", "ART", "Teleport", "AH", "Anim", "Silver" }
-    for _, btnName in ipairs(btnList) do
-        AddBtnEditor(btnName)
-    end
+    for _, btnName in ipairs(btnList) do AddBtnEditor(btnName) end
 end
 
 return FluentHUD
