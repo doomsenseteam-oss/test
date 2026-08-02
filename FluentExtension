@@ -1,5 +1,5 @@
 -- ═══════════════════════════════════════════════════════════════════════════
--- FLUENTEXTENSION V3.0 (Full Neverlose UI Engine)
+-- FLUENT EXTENSION FRAMEWORK V4.0 (ULTIMATE NEVERLOSE ENGINE)
 -- ═══════════════════════════════════════════════════════════════════════════
 
 local UserInputService   = game:GetService("UserInputService")
@@ -9,117 +9,151 @@ local Players            = game:GetService("Players")
 local StatsService       = game:GetService("Stats")
 local MarketplaceService = game:GetService("MarketplaceService")
 local CoreGui            = game:GetService("CoreGui")
+local HttpService        = game:GetService("HttpService")
 
 local LocalPlayer = Players.LocalPlayer
 
-local FluentExtension = {
-    Version = "3.0.0",
+local FX = {
+    Version = "4.0.0",
     Library = nil,
-    OverlayGui = nil,
-    Hotkeys = {},           -- Таблица биндов { [optId] = { Key="E", Mode="Hold", Visible=true, TargetValue=true, LuaPath="..." } }
-    ActiveOverlays = {},
-    PlaceName = "Roblox Game",
-    PlaceIcon = "rbxassetid://6031075931",
+    GUI = nil,
+    Hotkeys = {},
+    SettingsMenus = {},
+    Windows = {},
+    GameInfo = { Name = "Roblox", Icon = "rbxassetid://6031075931" },
+    ThemeColors = {
+        Main = Color3.fromRGB(15, 17, 23),
+        Border = Color3.fromRGB(40, 46, 60),
+        Accent = Color3.fromRGB(89, 140, 250),
+        Text = Color3.fromRGB(240, 245, 255),
+        SubText = Color3.fromRGB(140, 150, 170),
+        Hover = Color3.fromRGB(25, 28, 38),
+        Danger = Color3.fromRGB(255, 75, 75)
+    }
 }
 
--- ── ИНИЦИАЛИЗАЦИЯ ────────────────────────────────────────────────────────────
+-- ── 1. CORE ENGINE & INITIALIZATION ─────────────────────────────────────────
 
-function FluentExtension:Init(FluentLibrary)
-    self.Library = FluentLibrary
+function FX:Init(FluentLib)
+    self.Library = FluentLib
 
     task.spawn(function()
         pcall(function()
             local info = MarketplaceService:GetProductInfo(game.PlaceId)
             if info then
-                if info.Name and #info.Name > 0 then self.PlaceName = info.Name end
-                if info.IconImageAssetId and info.IconImageAssetId > 0 then
-                    self.PlaceIcon = "rbxassetid://" .. tostring(info.IconImageAssetId)
-                end
+                if info.Name then self.GameInfo.Name = info.Name end
+                if info.IconImageAssetId then self.GameInfo.Icon = "rbxassetid://" .. info.IconImageAssetId end
             end
         end)
     end)
 
-    local gui = Instance.new("ScreenGui")
-    gui.Name = "FluentExtension_Container"
-    gui.ResetOnSpawn = false
-    gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-    gui.Parent = CoreGui
-    self.OverlayGui = gui
+    local container = Instance.new("ScreenGui")
+    container.Name = "FluentExtension_Core"
+    container.ResetOnSpawn = false
+    container.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    container.Parent = CoreGui
+    self.GUI = container
 
-    -- Регистрация нативных методов во Fluent
-    if FluentLibrary.Elements then
-        FluentLibrary.Elements.AddTagGrid = function(s, config)
-            return FluentExtension:CreateTagGrid(s.Container, config)
-        end
-    end
-
-    -- Глобальный слушатель нажатий клавиш для системы Биндов
-    self:StartHotkeyListener()
+    self:InjectIntoFluent()
+    self:StartBindProcessor()
 
     return self
 end
 
--- ── ДВИЖОК ПЕРЕТАСКИВАНИЯ МЫШЬЮ ──────────────────────────────────────────────
-
-function FluentExtension:MakeDraggable(frame, dragHandle)
-    dragHandle = dragHandle or frame
-    local dragging, dragStart, startPos, dragInput
-
-    dragHandle.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-            dragging = true
-            dragStart = input.Position
-            startPos = frame.Position
-
+function FX:MakeDraggable(frame, handle)
+    handle = handle or frame
+    local dragging, dragInput, dragStart, startPos
+    handle.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            dragging = true; dragStart = input.Position; startPos = frame.Position
             input.Changed:Connect(function()
                 if input.UserInputState == Enum.UserInputState.End then dragging = false end
             end)
         end
     end)
-
-    dragHandle.InputChanged:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
-            dragInput = input
-        end
+    handle.InputChanged:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseMovement then dragInput = input end
     end)
-
     UserInputService.InputChanged:Connect(function(input)
         if input == dragInput and dragging then
             local delta = input.Position - dragStart
-            frame.Position = UDim2.new(
-                startPos.X.Scale, startPos.X.Offset + delta.X,
-                startPos.Y.Scale, startPos.Y.Offset + delta.Y
-            )
+            frame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
         end
     end)
 end
 
--- ── СИСТЕМА ОБРАБОТКИ БИНДОВ И ТРИГГЕРОВ ────────────────────────────────────
+function FX:CreateRound(parent, radius)
+    local uic = Instance.new("UICorner")
+    uic.CornerRadius = UDim.new(0, radius or 6)
+    uic.Parent = parent
+    return uic
+end
 
-function FluentExtension:StartHotkeyListener()
+function FX:CreateStroke(parent, color, thickness)
+    local uis = Instance.new("UIStroke")
+    uis.Color = color or self.ThemeColors.Border
+    uis.Thickness = thickness or 1
+    uis.Parent = parent
+    return uis
+end
+
+function FX:CloseAllModals(exception)
+    for _, name in ipairs({"ContextMenu", "MiniMenu", "SubSettings"}) do
+        if self.Windows[name] and self.Windows[name] ~= exception then
+            self.Windows[name]:Destroy()
+            self.Windows[name] = nil
+        end
+    end
+end
+
+-- ── 2. FLUENT NATIVE HOOKS (АВТО-ИНТЕГРАЦИЯ) ────────────────────────────────
+
+function FX:InjectIntoFluent()
+    if not self.Library or not self.Library.Elements then return end
+
+    -- Перехватчик создания элементов для авто-добавления ПКМ
+    for _, elName in ipairs({"AddToggle", "AddSlider", "AddDropdown", "AddColorpicker"}) do
+        local original = self.Library.Elements[elName]
+        if original then
+            self.Library.Elements[elName] = function(tab, idx, config)
+                local element = original(tab, idx, config)
+                -- У элементов Fluent обычно есть .Frame или .Container
+                local frame = element.Frame or element.Container
+                if frame then
+                    self:AttachContextMenu(frame, idx, element, config)
+                end
+                return element
+            end
+        end
+    end
+
+    -- Нативный TagGrid
+    self.Library.Elements.AddTagGrid = function(tab, config)
+        return self:CreateTagGrid(tab.Container, config)
+    end
+end
+
+-- ── 3. KEYBIND PROCESSOR (ОБРАБОТКА НАЖАТИЙ) ────────────────────────────────
+
+function FX:StartBindProcessor()
     UserInputService.InputBegan:Connect(function(input, gpe)
         if gpe then return end
-        local keyCode = input.KeyCode ~= Enum.KeyCode.Unknown and input.KeyCode.Name or nil
-        local userInputType = input.UserInputType.Name
+        local key = input.KeyCode.Name ~= "Unknown" and input.KeyCode.Name or input.UserInputType.Name
 
-        local keyName = keyCode or userInputType
-
-        for optionId, bindData in pairs(self.Hotkeys) do
-            if bindData.Key and bindData.Key == keyName then
-                local option = self.Library.Options[optionId]
-                if option then
-                    if bindData.Mode == "Toggle" then
-                        bindData.Active = not bindData.Active
-                        if option.SetValue then
-                            local val = bindData.Active and (bindData.TargetValue ~= nil and bindData.TargetValue or true) or false
-                            option:SetValue(val)
+        for optId, bind in pairs(self.Hotkeys) do
+            if bind.Key == key then
+                local element = self.Library.Options[optId]
+                if element and element.SetValue then
+                    if bind.Mode == "Toggle" then
+                        bind.Active = not bind.Active
+                        if bind.TargetValue ~= nil then
+                            if bind.Active then element:SetValue(bind.TargetValue) else element:SetValue(element.Default or false) end
+                        else
+                            element:SetValue(not element.Value)
                         end
-                    elseif bindData.Mode == "Hold" then
-                        bindData.Active = true
-                        if option.SetValue then
-                            local val = bindData.TargetValue ~= nil and bindData.TargetValue or true
-                            option:SetValue(val)
-                        end
+                    elseif bind.Mode == "Hold" then
+                        bind.Active = true
+                        if bind.TargetValue ~= nil then element:SetValue(bind.TargetValue) else element:SetValue(true) end
                     end
                 end
             end
@@ -128,761 +162,411 @@ function FluentExtension:StartHotkeyListener()
 
     UserInputService.InputEnded:Connect(function(input, gpe)
         if gpe then return end
-        local keyCode = input.KeyCode ~= Enum.KeyCode.Unknown and input.KeyCode.Name or nil
-        local userInputType = input.UserInputType.Name
-        local keyName = keyCode or userInputType
-
-        for optionId, bindData in pairs(self.Hotkeys) do
-            if bindData.Key and bindData.Key == keyName and bindData.Mode == "Hold" then
-                bindData.Active = false
-                local option = self.Library.Options[optionId]
-                if option and option.SetValue then
-                    option:SetValue(false)
+        local key = input.KeyCode.Name ~= "Unknown" and input.KeyCode.Name or input.UserInputType.Name
+        for optId, bind in pairs(self.Hotkeys) do
+            if bind.Key == key and bind.Mode == "Hold" then
+                bind.Active = false
+                local element = self.Library.Options[optId]
+                if element and element.SetValue then
+                    if bind.TargetValue ~= nil then element:SetValue(element.Default or false) else element:SetValue(false) end
                 end
             end
         end
     end)
 end
 
--- ── 1. ВОДЯНОЙ ЗНАК (WATERMARK) ──────────────────────────────────────────────
+-- ── 4. CONTEXT MENU (МЕНЮ ПКМ) ──────────────────────────────────────────────
 
-function FluentExtension:CreateWatermark()
-    if self.WatermarkFrame then return self.WatermarkFrame end
-
-    local frame = Instance.new("Frame", self.OverlayGui)
-    frame.Name = "Fluent_Watermark"
-    frame.Size = UDim2.fromOffset(320, 30)
-    frame.Position = UDim2.new(1, -330, 0, 15)
-    frame.BackgroundColor3 = Color3.fromRGB(15, 18, 24)
-    frame.BorderSizePixel = 0
-
-    Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 6)
-    local stroke = Instance.new("UIStroke", frame)
-    stroke.Color = Color3.fromRGB(45, 52, 68)
-
-    local icon = Instance.new("ImageLabel", frame)
-    icon.Size = UDim2.fromOffset(16, 16)
-    icon.Position = UDim2.fromOffset(8, 7)
-    icon.BackgroundTransparency = 1
-    icon.Image = self.PlaceIcon
-
-    local label = Instance.new("TextLabel", frame)
-    label.Size = UDim2.new(1, -34, 1, 0)
-    label.Position = UDim2.fromOffset(30, 0)
-    label.BackgroundTransparency = 1
-    label.Font = Enum.Font.GothamMedium
-    label.TextSize = 11
-    label.TextColor3 = Color3.fromRGB(230, 235, 245)
-    label.TextXAlignment = Enum.TextXAlignment.Left
-
-    local lastTime = tick()
-    local frameCount = 0
-
-    RunService.Heartbeat:Connect(function()
-        frameCount = frameCount + 1
-        local now = tick()
-        if now - lastTime >= 0.5 then
-            local currentFPS = math.floor(frameCount / (now - lastTime))
-            frameCount = 0
-            lastTime = now
-
-            local ping = 0
-            pcall(function() ping = math.floor(StatsService.Network.ServerStatsItem["Data Ping"]:GetValue()) end)
-
-            label.Text = string.format("Fluent | %s | %d fps | %d ms", self.PlaceName, currentFPS, ping)
-        end
-    end)
-
-    self:MakeDraggable(frame)
-    self.WatermarkFrame = frame
-    return frame
-end
-
--- ── 2. ПЛАВАЮЩЕЕ ОКНО БИНДОВ (HOTKEYS OVERLAY WINDOW) ───────────────────────
-
-function FluentExtension:CreateHotkeyWindow()
-    if self.HotkeyWindow then return self.HotkeyWindow end
-
-    local frame = Instance.new("Frame", self.OverlayGui)
-    frame.Name = "Fluent_HotkeysWindow"
-    frame.Size = UDim2.fromOffset(210, 32)
-    frame.Position = UDim2.new(0, 15, 0.4, 0)
-    frame.BackgroundColor3 = Color3.fromRGB(15, 18, 24)
-    frame.BorderSizePixel = 0
-    frame.ClipsDescendants = true
-
-    Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 6)
-    local stroke = Instance.new("UIStroke", frame)
-    stroke.Color = Color3.fromRGB(45, 52, 68)
-
-    local title = Instance.new("TextLabel", frame)
-    title.Size = UDim2.new(1, 0, 0, 30)
-    title.Position = UDim2.fromOffset(10, 0)
-    title.BackgroundTransparency = 1
-    title.Text = "Hotkeys"
-    title.TextColor3 = Color3.fromRGB(255, 255, 255)
-    title.Font = Enum.Font.GothamBold
-    title.TextSize = 12
-    title.TextXAlignment = Enum.TextXAlignment.Left
-
-    local container = Instance.new("Frame", frame)
-    container.Position = UDim2.fromOffset(8, 30)
-    container.Size = UDim2.new(1, -16, 0, 0)
-    container.AutomaticSize = Enum.AutomaticSize.Y
-    container.BackgroundTransparency = 1
-
-    local layout = Instance.new("UIListLayout", container)
-    layout.Padding = UDim.new(0, 4)
-
-    local rows = {}
-
-    RunService.Heartbeat:Connect(function()
-        local activeCount = 0
-
-        for optionId, bindData in pairs(self.Hotkeys) do
-            if bindData.Visible and bindData.Key and bindData.Key ~= "None" then
-                local option = self.Library.Options[optionId]
-                local nameText = (option and option.Title) or optionId
-
-                if not rows[optionId] then
-                    local row = Instance.new("Frame", container)
-                    row.Size = UDim2.new(1, 0, 0, 20)
-                    row.BackgroundTransparency = 1
-
-                    local nameLbl = Instance.new("TextLabel", row)
-                    nameLbl.Size = UDim2.new(0.6, 0, 1, 0)
-                    nameLbl.BackgroundTransparency = 1
-                    nameLbl.Font = Enum.Font.Gotham
-                    nameLbl.TextSize = 11
-                    nameLbl.TextXAlignment = Enum.TextXAlignment.Left
-                    nameLbl.TextTruncate = Enum.TextTruncate.AtEnd
-
-                    local stateLbl = Instance.new("TextLabel", row)
-                    stateLbl.Size = UDim2.new(0.4, 0, 1, 0)
-                    stateLbl.Position = UDim2.new(0.6, 0, 0, 0)
-                    stateLbl.BackgroundTransparency = 1
-                    stateLbl.Font = Enum.Font.GothamMedium
-                    stateLbl.TextSize = 11
-                    stateLbl.TextXAlignment = Enum.TextXAlignment.Right
-
-                    rows[optionId] = { Frame = row, Name = nameLbl, State = stateLbl }
-                end
-
-                local r = rows[optionId]
-                r.Frame.Visible = true
-                r.Name.Text = nameText
-                r.State.Text = string.format("[%s] %s", bindData.Key, bindData.Mode or "Toggle")
-
-                if bindData.Active then
-                    r.Name.TextColor3 = Color3.fromRGB(255, 255, 255)
-                    r.State.TextColor3 = Color3.fromRGB(89, 140, 250)
-                else
-                    r.Name.TextColor3 = Color3.fromRGB(140, 145, 160)
-                    r.State.TextColor3 = Color3.fromRGB(90, 95, 110)
-                end
-
-                activeCount = activeCount + 1
-            elseif rows[optionId] then
-                rows[optionId].Frame.Visible = false
-            end
-        end
-
-        if activeCount == 0 then
-            frame.Visible = false
-        else
-            frame.Visible = true
-            frame.Size = UDim2.fromOffset(210, 34 + (activeCount * 24))
-        end
-    end)
-
-    self:MakeDraggable(frame, title)
-    self.HotkeyWindow = frame
-    return frame
-end
-
--- ── 3. ОКНО ГЛОБАЛЬНОГО МЕНЕДЖЕРА БИНДОВ ("ALL HOTKEYS") ────────────────────
-
-function FluentExtension:OpenAllHotkeysWindow()
-    if self.AllHotkeysModal then
-        self.AllHotkeysModal.Visible = not self.AllHotkeysModal.Visible
-        return
-    end
-
-    local modal = Instance.new("Frame", self.OverlayGui)
-    modal.Name = "Fluent_AllHotkeysModal"
-    modal.Size = UDim2.fromOffset(580, 360)
-    modal.Position = UDim2.new(0.5, -290, 0.5, -180)
-    modal.BackgroundColor3 = Color3.fromRGB(15, 18, 24)
-    modal.BorderSizePixel = 0
-    modal.ZIndex = 3000
-
-    Instance.new("UICorner", modal).CornerRadius = UDim.new(0, 8)
-    local stroke = Instance.new("UIStroke", modal)
-    stroke.Color = Color3.fromRGB(50, 58, 75)
-
-    -- Header
-    local title = Instance.new("TextLabel", modal)
-    title.Size = UDim2.new(1, -40, 0, 36)
-    title.Position = UDim2.fromOffset(15, 0)
-    title.BackgroundTransparency = 1
-    title.Text = "All Hotkeys Manager"
-    title.TextColor3 = Color3.fromRGB(255, 255, 255)
-    title.Font = Enum.Font.GothamBold
-    title.TextSize = 14
-    title.TextXAlignment = Enum.TextXAlignment.Left
-
-    local closeBtn = Instance.new("TextButton", modal)
-    closeBtn.Size = UDim2.fromOffset(24, 24)
-    closeBtn.Position = UDim2.new(1, -32, 0, 6)
-    closeBtn.BackgroundTransparency = 1
-    closeBtn.Text = "✕"
-    closeBtn.TextColor3 = Color3.fromRGB(180, 185, 200)
-    closeBtn.Font = Enum.Font.GothamBold
-    closeBtn.TextSize = 13
-    closeBtn.MouseButton1Click:Connect(function() modal.Visible = false end)
-
-    -- Columns Line
-    local headers = Instance.new("Frame", modal)
-    headers.Size = UDim2.new(1, -30, 0, 24)
-    headers.Position = UDim2.fromOffset(15, 36)
-    headers.BackgroundColor3 = Color3.fromRGB(22, 26, 35)
-
-    Instance.new("UICorner", headers).CornerRadius = UDim.new(0, 4)
-
-    local function addColHeader(txt, size, xpos)
-        local h = Instance.new("TextLabel", headers)
-        h.Size = size
-        h.Position = xpos
-        h.BackgroundTransparency = 1
-        h.Text = txt
-        h.Font = Enum.Font.GothamMedium
-        h.TextSize = 10
-        h.TextColor3 = Color3.fromRGB(150, 160, 180)
-        h.TextXAlignment = Enum.TextXAlignment.Left
-    end
-
-    addColHeader("Feature", UDim2.new(0.3, 0, 1, 0), UDim2.fromOffset(10, 0))
-    addColHeader("Key", UDim2.new(0.18, 0, 1, 0), UDim2.new(0.3, 0, 0, 0))
-    addColHeader("Mode", UDim2.new(0.2, 0, 1, 0), UDim2.new(0.48, 0, 0, 0))
-    addColHeader("Visibility", UDim2.new(0.2, 0, 1, 0), UDim2.new(0.68, 0, 0, 0))
-    addColHeader("Action", UDim2.new(0.12, 0, 1, 0), UDim2.new(0.88, 0, 0, 0))
-
-    -- Scroll Area
-    local scroll = Instance.new("ScrollingFrame", modal)
-    scroll.Size = UDim2.new(1, -30, 1, -75)
-    scroll.Position = UDim2.fromOffset(15, 66)
-    scroll.BackgroundTransparency = 1
-    scroll.ScrollBarThickness = 3
-    scroll.CanvasSize = UDim2.new(0, 0, 0, 0)
-    scroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
-
-    local layout = Instance.new("UIListLayout", scroll)
-    layout.Padding = UDim.new(0, 4)
-
-    -- Функция обновления списка
-    local function refreshManager()
-        for _, child in pairs(scroll:GetChildren()) do
-            if child:IsA("Frame") then child:Destroy() end
-        end
-
-        for optionId, bindData in pairs(self.Hotkeys) do
-            local option = self.Library.Options[optionId]
-            local nameText = (option and option.Title) or optionId
-
-            local row = Instance.new("Frame", scroll)
-            row.Size = UDim2.new(1, 0, 0, 28)
-            row.BackgroundColor3 = Color3.fromRGB(20, 23, 31)
-
-            Instance.new("UICorner", row).CornerRadius = UDim.new(0, 4)
-
-            -- Name
-            local fLbl = Instance.new("TextLabel", row)
-            fLbl.Size = UDim2.new(0.3, -10, 1, 0)
-            fLbl.Position = UDim2.fromOffset(10, 0)
-            fLbl.BackgroundTransparency = 1
-            fLbl.Text = nameText
-            fLbl.Font = Enum.Font.Gotham
-            fLbl.TextSize = 11
-            fLbl.TextColor3 = Color3.fromRGB(230, 235, 245)
-            fLbl.TextXAlignment = Enum.TextXAlignment.Left
-
-            -- Key
-            local keyBtn = Instance.new("TextButton", row)
-            keyBtn.Size = UDim2.new(0.16, 0, 0, 20)
-            keyBtn.Position = UDim2.new(0.3, 0, 0.5, -10)
-            keyBtn.BackgroundColor3 = Color3.fromRGB(30, 35, 48)
-            keyBtn.Text = bindData.Key or "None"
-            keyBtn.TextColor3 = Color3.fromRGB(89, 140, 250)
-            keyBtn.Font = Enum.Font.GothamBold
-            keyBtn.TextSize = 10
-            Instance.new("UICorner", keyBtn).CornerRadius = UDim.new(0, 4)
-
-            -- Mode
-            local modeBtn = Instance.new("TextButton", row)
-            modeBtn.Size = UDim2.new(0.18, 0, 0, 20)
-            modeBtn.Position = UDim2.new(0.48, 0, 0.5, -10)
-            modeBtn.BackgroundColor3 = Color3.fromRGB(30, 35, 48)
-            modeBtn.Text = bindData.Mode or "Toggle"
-            modeBtn.TextColor3 = Color3.fromRGB(220, 225, 240)
-            modeBtn.Font = Enum.Font.Gotham
-            modeBtn.TextSize = 10
-            Instance.new("UICorner", modeBtn).CornerRadius = UDim.new(0, 4)
-
-            modeBtn.MouseButton1Click:Connect(function()
-                bindData.Mode = (bindData.Mode == "Toggle") and "Hold" or ((bindData.Mode == "Hold") and "Always" or "Toggle")
-                modeBtn.Text = bindData.Mode
-            end)
-
-            -- Visibility Toggle
-            local visBtn = Instance.new("TextButton", row)
-            visBtn.Size = UDim2.new(0.18, 0, 0, 20)
-            visBtn.Position = UDim2.new(0.68, 0, 0.5, -10)
-            visBtn.BackgroundColor3 = bindData.Visible and Color3.fromRGB(40, 120, 60) or Color3.fromRGB(45, 50, 65)
-            visBtn.Text = bindData.Visible and "Visible" or "Hidden"
-            visBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-            visBtn.Font = Enum.Font.Gotham
-            visBtn.TextSize = 10
-            Instance.new("UICorner", visBtn).CornerRadius = UDim.new(0, 4)
-
-            visBtn.MouseButton1Click:Connect(function()
-                bindData.Visible = not bindData.Visible
-                visBtn.Text = bindData.Visible and "Visible" or "Hidden"
-                visBtn.BackgroundColor3 = bindData.Visible and Color3.fromRGB(40, 120, 60) or Color3.fromRGB(45, 50, 65)
-            end)
-
-            -- Delete
-            local delBtn = Instance.new("TextButton", row)
-            delBtn.Size = UDim2.new(0.1, 0, 0, 20)
-            delBtn.Position = UDim2.new(0.88, 0, 0.5, -10)
-            delBtn.BackgroundColor3 = Color3.fromRGB(180, 50, 50)
-            delBtn.Text = "🗑"
-            delBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-            delBtn.Font = Enum.Font.GothamBold
-            delBtn.TextSize = 11
-            Instance.new("UICorner", delBtn).CornerRadius = UDim.new(0, 4)
-
-            delBtn.MouseButton1Click:Connect(function()
-                self.Hotkeys[optionId] = nil
-                refreshManager()
-            end)
-        end
-    end
-
-    refreshManager()
-    self:MakeDraggable(modal, title)
-    self.AllHotkeysModal = modal
-end
-
--- ── 4. КОНТЕКСТНОЕ МЕНЮ ПКМ НА ЛЮБОМ ЭЛЕМЕНТЕ FLUENT ────────────────────────
-
-function FluentExtension:AttachContextMenu(fluentElement, optionId, luaPathStr)
-    local frame = fluentElement.Frame or fluentElement
-    if not frame then return end
-
-    -- Если бинд ещё не инициализирован для этого элемента — создаем структуру
-    if not self.Hotkeys[optionId] then
-        self.Hotkeys[optionId] = {
-            Key = "None",
-            Mode = "Toggle",
-            Visible = true,
-            TargetValue = true,
-            Active = false,
-            LuaPath = luaPathStr or string.format('ui.find("%s")', optionId)
-        }
-    end
-
+function FX:AttachContextMenu(frame, optId, elementObj, config)
     frame.InputBegan:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton2 then
-            self:OpenContextMenu(input.Position, optionId, fluentElement)
+            self:OpenContextMenu(input.Position, optId, elementObj, config)
         end
     end)
 end
 
-function FluentExtension:OpenContextMenu(position, optionId, fluentElement)
-    if self.CurrentContextMenu then self.CurrentContextMenu:Destroy() end
+function FX:OpenContextMenu(pos, optId, elementObj, config)
+    self:CloseAllModals()
 
-    local bindData = self.Hotkeys[optionId]
-    local option = self.Library.Options[optionId]
+    if not self.Hotkeys[optId] then
+        self.Hotkeys[optId] = { Key = "None", Mode = "Toggle", Visible = true, Active = false, TargetValue = nil }
+    end
+    local bind = self.Hotkeys[optId]
 
-    local menu = Instance.new("Frame", self.OverlayGui)
-    menu.Name = "Fluent_RMB_ContextMenu"
-    menu.Size = UDim2.fromOffset(165, 120)
-    menu.Position = UDim2.fromOffset(position.X, position.Y)
-    menu.BackgroundColor3 = Color3.fromRGB(18, 21, 28)
+    local menu = Instance.new("Frame", self.GUI)
+    menu.Name = "ContextMenu"
+    menu.Size = UDim2.fromOffset(170, 130)
+    menu.Position = UDim2.fromOffset(pos.X, pos.Y)
+    menu.BackgroundColor3 = self.ThemeColors.Main
     menu.BorderSizePixel = 0
-    menu.ZIndex = 4000
-
-    Instance.new("UICorner", menu).CornerRadius = UDim.new(0, 6)
-    local stroke = Instance.new("UIStroke", menu)
-    stroke.Color = Color3.fromRGB(50, 58, 75)
+    menu.ZIndex = 1000
+    self:CreateRound(menu); self:CreateStroke(menu)
 
     local layout = Instance.new("UIListLayout", menu)
-    layout.Padding = UDim.new(0, 2)
+    layout.Padding = UDim.new(0, 2); layout.SortOrder = Enum.SortOrder.LayoutOrder
     local pad = Instance.new("UIPadding", menu)
-    pad.PaddingTop = UDim.new(0, 4)
-    pad.PaddingLeft = UDim.new(0, 4)
-    pad.PaddingRight = UDim.new(0, 4)
+    pad.PaddingTop = UDim.new(0, 4); pad.PaddingBottom = UDim.new(0, 4); pad.PaddingLeft = UDim.new(0, 4); pad.PaddingRight = UDim.new(0, 4)
 
-    local function addRow(icon, text, color, callback)
-        local btn = Instance.new("TextButton", menu)
-        btn.Size = UDim2.new(1, 0, 0, 22)
-        btn.BackgroundTransparency = 1
-        btn.Text = string.format(" %s  %s", icon, text)
-        btn.TextColor3 = color or Color3.fromRGB(225, 230, 245)
-        btn.Font = Enum.Font.Gotham
-        btn.TextSize = 11
-        btn.TextXAlignment = Enum.TextXAlignment.Left
-        btn.ZIndex = 4001
-        Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 4)
+    local function addBtn(icon, text, color, cb)
+        local b = Instance.new("TextButton", menu)
+        b.Size = UDim2.new(1, 0, 0, 24); b.BackgroundTransparency = 1
+        b.Text = string.format("  %s   %s", icon, text)
+        b.TextColor3 = color or self.ThemeColors.Text; b.Font = Enum.Font.Gotham; b.TextSize = 11; b.TextXAlignment = Enum.TextXAlignment.Left; b.ZIndex = 1001
+        self:CreateRound(b, 4)
+        b.MouseEnter:Connect(function() b.BackgroundTransparency = 0; b.BackgroundColor3 = self.ThemeColors.Hover end)
+        b.MouseLeave:Connect(function() b.BackgroundTransparency = 1 end)
+        b.MouseButton1Click:Connect(function() menu:Destroy(); if cb then cb() end end)
+    end
 
-        btn.MouseEnter:Connect(function()
-            btn.BackgroundTransparency = 0.8
-            btn.BackgroundColor3 = Color3.fromRGB(89, 140, 250)
+    local keyText = bind.Key ~= "None" and ("["..bind.Key.."] >") or "Unbound >"
+
+    addBtn("⌨", keyText, self.ThemeColors.Text, function() self:OpenMiniMenu(pos, optId, elementObj, config) end)
+    addBtn("📋", "All Hotkeys", self.ThemeColors.Text, function() self:CreateAllHotkeysManager() end)
+    addBtn("➕", "New Hotkey", self.ThemeColors.Text, function() self:OpenMiniMenu(pos, optId, elementObj, config) end)
+    addBtn("🔗", "Copy Path", self.ThemeColors.SubText, function()
+        pcall(function() setclipboard('ui.find("'..optId..'")') end)
+        self.Library:Notify({Title="Copied", Content="Path copied to clipboard", Duration=2})
+    end)
+    addBtn("🔄", "Reset", self.ThemeColors.Danger, function()
+        bind.Key = "None"; bind.Active = false
+        if elementObj.SetValue then elementObj:SetValue(elementObj.Default) end
+    end)
+
+    self.Windows.ContextMenu = menu
+
+    local conn; conn = UserInputService.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            if menu.Parent then
+                local m = UserInputService:GetMouseLocation()
+                local a, s = menu.AbsolutePosition, menu.AbsoluteSize
+                if m.X < a.X or m.X > a.X + s.X or m.Y < a.Y or m.Y > a.Y + s.Y then
+                    menu:Destroy(); conn:Disconnect()
+                end
+            else conn:Disconnect() end
+        end
+    end)
+end
+
+-- ── 5. MINI MENU (НАСТРОЙКА ЗНАЧЕНИЙ БИНДА) ─────────────────────────────────
+
+function FX:OpenMiniMenu(pos, optId, elementObj, config)
+    self:CloseAllModals()
+    local bind = self.Hotkeys[optId]
+    local isSlider = elementObj.Type == "Slider"
+    local isToggle = elementObj.Type == "Toggle"
+
+    local height = isSlider and 140 or 120
+    local menu = Instance.new("Frame", self.GUI)
+    menu.Name = "MiniMenu"
+    menu.Size = UDim2.fromOffset(200, height)
+    menu.Position = UDim2.fromOffset(pos.X + 175, pos.Y)
+    menu.BackgroundColor3 = self.ThemeColors.Main
+    menu.ZIndex = 2000
+    self:CreateRound(menu); self:CreateStroke(menu)
+
+    local pad = Instance.new("UIPadding", menu)
+    pad.PaddingTop = UDim.new(0, 6); pad.PaddingLeft = UDim.new(0, 8); pad.PaddingRight = UDim.new(0, 8)
+    local layout = Instance.new("UIListLayout", menu)
+    layout.Padding = UDim.new(0, 6)
+
+    -- 1. Key
+    local rowK = Instance.new("Frame", menu); rowK.Size = UDim2.new(1,0,0,22); rowK.BackgroundTransparency = 1
+    local lblK = Instance.new("TextLabel", rowK); lblK.Size=UDim2.new(0.4,0,1,0); lblK.BackgroundTransparency=1; lblK.Text="Key"; lblK.TextColor3=self.ThemeColors.SubText; lblK.Font=Enum.Font.Gotham; lblK.TextSize=11; lblK.TextXAlignment=0
+    local btnK = Instance.new("TextButton", rowK); btnK.Size=UDim2.new(0.6,0,1,0); btnK.Position=UDim2.new(0.4,0,0,0); btnK.BackgroundColor3=self.ThemeColors.Hover; btnK.Text=bind.Key; btnK.TextColor3=self.ThemeColors.Accent; btnK.Font=Enum.Font.GothamBold; btnK.TextSize=11; self:CreateRound(btnK,4); self:CreateStroke(btnK)
+    btnK.MouseButton1Click:Connect(function()
+        btnK.Text = "..."
+        local c; c = UserInputService.InputBegan:Connect(function(i)
+            if i.UserInputType == Enum.UserInputType.Keyboard then bind.Key = i.KeyCode.Name; btnK.Text = bind.Key; c:Disconnect()
+            elseif i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.MouseButton2 then bind.Key = i.UserInputType.Name; btnK.Text = bind.Key; c:Disconnect() end
         end)
-        btn.MouseLeave:Connect(function() btn.BackgroundTransparency = 1 end)
-        btn.MouseButton1Click:Connect(function()
-            menu:Destroy()
-            self.CurrentContextMenu = nil
-            if callback then callback() end
+    end)
+
+    -- 2. Mode
+    local rowM = Instance.new("Frame", menu); rowM.Size = UDim2.new(1,0,0,22); rowM.BackgroundTransparency = 1
+    local lblM = Instance.new("TextLabel", rowM); lblM.Size=UDim2.new(0.4,0,1,0); lblM.BackgroundTransparency=1; lblM.Text="Mode"; lblM.TextColor3=self.ThemeColors.SubText; lblM.Font=Enum.Font.Gotham; lblM.TextSize=11; lblM.TextXAlignment=0
+    local btnM = Instance.new("TextButton", rowM); btnM.Size=UDim2.new(0.6,0,1,0); btnM.Position=UDim2.new(0.4,0,0,0); btnM.BackgroundColor3=self.ThemeColors.Hover; btnM.Text=bind.Mode; btnM.TextColor3=self.ThemeColors.Text; btnM.Font=Enum.Font.Gotham; btnM.TextSize=11; self:CreateRound(btnM,4); self:CreateStroke(btnM)
+    btnM.MouseButton1Click:Connect(function()
+        bind.Mode = bind.Mode == "Toggle" and "Hold" or (bind.Mode == "Hold" and "Always" or "Toggle")
+        btnM.Text = bind.Mode
+    end)
+
+    -- 3. Target Value (Зависит от типа элемента)
+    local rowV = Instance.new("Frame", menu); rowV.Size = UDim2.new(1,0,0,22); rowV.BackgroundTransparency = 1
+    local lblV = Instance.new("TextLabel", rowV); lblV.Size=UDim2.new(0.4,0,1,0); lblV.BackgroundTransparency=1; lblV.Text="Value"; lblV.TextColor3=self.ThemeColors.SubText; lblV.Font=Enum.Font.Gotham; lblV.TextSize=11; lblV.TextXAlignment=0
+
+    if isToggle then
+        if bind.TargetValue == nil then bind.TargetValue = true end
+        local btnV = Instance.new("TextButton", rowV); btnV.Size=UDim2.new(0.6,0,1,0); btnV.Position=UDim2.new(0.4,0,0,0); btnV.BackgroundColor3=bind.TargetValue and Color3.fromRGB(40,120,60) or Color3.fromRGB(120,40,40); btnV.Text=bind.TargetValue and "On" or "Off"; btnV.TextColor3=Color3.new(1,1,1); btnV.Font=Enum.Font.Gotham; btnV.TextSize=11; self:CreateRound(btnV,4)
+        btnV.MouseButton1Click:Connect(function()
+            bind.TargetValue = not bind.TargetValue
+            btnV.Text = bind.TargetValue and "On" or "Off"
+            btnV.BackgroundColor3 = bind.TargetValue and Color3.fromRGB(40,120,60) or Color3.fromRGB(120,40,40)
+        end)
+    elseif isSlider then
+        if bind.TargetValue == nil then bind.TargetValue = config.Default or 0 end
+        local boxV = Instance.new("TextBox", rowV); boxV.Size=UDim2.new(0.6,0,1,0); boxV.Position=UDim2.new(0.4,0,0,0); boxV.BackgroundColor3=self.ThemeColors.Hover; boxV.Text=tostring(bind.TargetValue); boxV.TextColor3=self.ThemeColors.Text; boxV.Font=Enum.Font.Gotham; boxV.TextSize=11; self:CreateRound(boxV,4); self:CreateStroke(boxV)
+        boxV.FocusLost:Connect(function()
+            local num = tonumber(boxV.Text)
+            if num then
+                num = math.clamp(num, config.Min or 0, config.Max or 100)
+                bind.TargetValue = num
+                boxV.Text = tostring(num)
+            else boxV.Text = tostring(bind.TargetValue) end
         end)
     end
 
-    local bindText = (bindData and bindData.Key and bindData.Key ~= "None") and string.format("[%s] >", bindData.Key) or "Unbound >"
-
-    addRow("⌨", bindText, Color3.fromRGB(255, 255, 255), function()
-        self:OpenHotkeyConfigModal(position, optionId, fluentElement)
+    -- 4. Visibility
+    local rowVis = Instance.new("Frame", menu); rowVis.Size = UDim2.new(1,0,0,22); rowVis.BackgroundTransparency = 1
+    local lblVis = Instance.new("TextLabel", rowVis); lblVis.Size=UDim2.new(0.4,0,1,0); lblVis.BackgroundTransparency=1; lblVis.Text="Visible"; lblVis.TextColor3=self.ThemeColors.SubText; lblVis.Font=Enum.Font.Gotham; lblVis.TextSize=11; lblVis.TextXAlignment=0
+    local btnVis = Instance.new("TextButton", rowVis); btnVis.Size=UDim2.new(0.6,0,1,0); btnVis.Position=UDim2.new(0.4,0,0,0); btnVis.BackgroundColor3=bind.Visible and Color3.fromRGB(40,120,60) or self.ThemeColors.Hover; btnVis.Text=bind.Visible and "Show" or "Hide"; btnVis.TextColor3=self.ThemeColors.Text; btnVis.Font=Enum.Font.Gotham; btnVis.TextSize=11; self:CreateRound(btnVis,4); self:CreateStroke(btnVis)
+    btnVis.MouseButton1Click:Connect(function()
+        bind.Visible = not bind.Visible
+        btnVis.Text = bind.Visible and "Show" or "Hide"
+        btnVis.BackgroundColor3 = bind.Visible and Color3.fromRGB(40,120,60) or self.ThemeColors.Hover
     end)
 
-    addRow("📋", "All Hotkeys", Color3.fromRGB(210, 215, 230), function()
-        self:OpenAllHotkeysWindow()
+    -- 5. Delete
+    local btnDel = Instance.new("TextButton", menu); btnDel.Size=UDim2.new(1,0,0,22); btnDel.BackgroundColor3=self.ThemeColors.Danger; btnDel.Text="Delete Bind"; btnDel.TextColor3=Color3.new(1,1,1); btnDel.Font=Enum.Font.GothamBold; btnDel.TextSize=11; self:CreateRound(btnDel,4)
+    btnDel.MouseButton1Click:Connect(function()
+        bind.Key = "None"; bind.Active = false; menu:Destroy()
     end)
 
-    addRow("➕", "New Hotkey", Color3.fromRGB(210, 215, 230), function()
-        self:OpenHotkeyConfigModal(position, optionId, fluentElement)
-    end)
-
-    addRow("🔗", "Copy Path", Color3.fromRGB(210, 215, 230), function()
-        local path = bindData and bindData.LuaPath or string.format('ui.find("%s")', optionId)
-        pcall(function() setclipboard(path) end)
-        self.Library:Notify({ Title = "Context Menu", Content = "Скопировано: " .. path, Duration = 2.5 })
-    end)
-
-    addRow("🔄", "Reset", Color3.fromRGB(255, 90, 90), function()
-        if bindData then
-            bindData.Key = "None"
-            bindData.Active = false
-        end
-        if option and option.SetValue then
-            option:SetValue(option.Default or false)
-        end
-        self.Library:Notify({ Title = "Context Menu", Content = "Сброшено к дефолту", Duration = 2 })
-    end)
-
-    self.CurrentContextMenu = menu
-
-    -- Закрытие при клике мимо
-    local conn
-    conn = UserInputService.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 then
-            if menu and menu.Parent then
-                local mPos = UserInputService:GetMouseLocation()
-                local aPos, aSize = menu.AbsolutePosition, menu.AbsoluteSize
-                if mPos.X < aPos.X or mPos.X > aPos.X + aSize.X or mPos.Y < aPos.Y or mPos.Y > aPos.Y + aSize.Y then
-                    menu:Destroy()
-                    self.CurrentContextMenu = nil
-                    conn:Disconnect()
-                end
-            else
-                conn:Disconnect()
-            end
-        end
-    end)
+    self.Windows.MiniMenu = menu
 end
 
--- ── 5. ПОДМЕНЮ НАСТРОЙКИ БИНДА (HOTKEY CONFIG MODAL) ──────────────────────
+-- ── 6. SUB-SETTINGS (КНОПКА `...` ДЛЯ ВЛОЖЕННЫХ МЕНЮ) ───────────────────────
 
-function FluentExtension:OpenHotkeyConfigModal(position, optionId, fluentElement)
-    if self.CurrentConfigModal then self.CurrentConfigModal:Destroy() end
-
-    local bindData = self.Hotkeys[optionId]
-    local option = self.Library.Options[optionId]
-
-    local modal = Instance.new("Frame", self.OverlayGui)
-    modal.Name = "Fluent_HotkeyConfigModal"
-    modal.Size = UDim2.fromOffset(200, 160)
-    modal.Position = UDim2.fromOffset(position.X + 170, position.Y)
-    modal.BackgroundColor3 = Color3.fromRGB(18, 21, 28)
-    modal.BorderSizePixel = 0
-    modal.ZIndex = 5000
-
-    Instance.new("UICorner", modal).CornerRadius = UDim.new(0, 6)
-    local stroke = Instance.new("UIStroke", modal)
-    stroke.Color = Color3.fromRGB(50, 58, 75)
-
-    local pad = Instance.new("UIPadding", modal)
-    pad.PaddingTop = UDim.new(0, 8); pad.PaddingLeft = UDim.new(0, 10); pad.PaddingRight = UDim.new(0, 10)
-    local layout = Instance.new("UIListLayout", modal)
-    layout.Padding = UDim.new(0, 6)
-
-    -- 1. Key Picker
-    local keyRow = Instance.new("Frame", modal)
-    keyRow.Size = UDim2.new(1, 0, 0, 22); keyRow.BackgroundTransparency = 1
-    local kTitle = Instance.new("TextLabel", keyRow)
-    kTitle.Size = UDim2.new(0.5, 0, 1, 0); kTitle.BackgroundTransparency = 1; kTitle.Text = "Key"
-    kTitle.Font = Enum.Font.Gotham; kTitle.TextSize = 11; kTitle.TextColor3 = Color3.fromRGB(200, 205, 220); kTitle.TextXAlignment = Enum.TextXAlignment.Left
-
-    local kBtn = Instance.new("TextButton", keyRow)
-    kBtn.Size = UDim2.new(0.5, 0, 1, 0); kBtn.Position = UDim2.new(0.5, 0, 0, 0)
-    kBtn.BackgroundColor3 = Color3.fromRGB(30, 35, 48); kBtn.Text = bindData.Key or "None"
-    kBtn.Font = Enum.Font.GothamBold; kBtn.TextSize = 11; kBtn.TextColor3 = Color3.fromRGB(89, 140, 250)
-    Instance.new("UICorner", kBtn).CornerRadius = UDim.new(0, 4)
-
-    local listening = false
-    kBtn.MouseButton1Click:Connect(function()
-        listening = true
-        kBtn.Text = "..."
-        local conn
-        conn = UserInputService.InputBegan:Connect(function(inp)
-            if inp.UserInputType == Enum.UserInputType.Keyboard then
-                bindData.Key = inp.KeyCode.Name
-                kBtn.Text = bindData.Key
-                listening = false
-                conn:Disconnect()
-            elseif inp.UserInputType == Enum.UserInputType.MouseButton1 or inp.UserInputType == Enum.UserInputType.MouseButton2 then
-                bindData.Key = inp.UserInputType.Name
-                kBtn.Text = bindData.Key
-                listening = false
-                conn:Disconnect()
-            end
-        end)
-    end)
-
-    -- 2. Mode Selector
-    local modeRow = Instance.new("Frame", modal)
-    modeRow.Size = UDim2.new(1, 0, 0, 22); modeRow.BackgroundTransparency = 1
-    local mTitle = Instance.new("TextLabel", modeRow)
-    mTitle.Size = UDim2.new(0.5, 0, 1, 0); mTitle.BackgroundTransparency = 1; mTitle.Text = "Mode"
-    mTitle.Font = Enum.Font.Gotham; mTitle.TextSize = 11; mTitle.TextColor3 = Color3.fromRGB(200, 205, 220); mTitle.TextXAlignment = Enum.TextXAlignment.Left
-
-    local mBtn = Instance.new("TextButton", modeRow)
-    mBtn.Size = UDim2.new(0.5, 0, 1, 0); mBtn.Position = UDim2.new(0.5, 0, 0, 0)
-    mBtn.BackgroundColor3 = Color3.fromRGB(30, 35, 48); mBtn.Text = bindData.Mode or "Toggle"
-    mBtn.Font = Enum.Font.Gotham; mBtn.TextSize = 11; mBtn.TextColor3 = Color3.fromRGB(220, 225, 240)
-    Instance.new("UICorner", mBtn).CornerRadius = UDim.new(0, 4)
-
-    mBtn.MouseButton1Click:Connect(function()
-        bindData.Mode = (bindData.Mode == "Toggle") and "Hold" or ((bindData.Mode == "Hold") and "Always" or "Toggle")
-        mBtn.Text = bindData.Mode
-    end)
-
-    -- 3. Visible Toggle
-    local visRow = Instance.new("Frame", modal)
-    visRow.Size = UDim2.new(1, 0, 0, 22); visRow.BackgroundTransparency = 1
-    local vTitle = Instance.new("TextLabel", visRow)
-    vTitle.Size = UDim2.new(0.5, 0, 1, 0); vTitle.BackgroundTransparency = 1; vTitle.Text = "Visible"
-    vTitle.Font = Enum.Font.Gotham; vTitle.TextSize = 11; vTitle.TextColor3 = Color3.fromRGB(200, 205, 220); vTitle.TextXAlignment = Enum.TextXAlignment.Left
-
-    local vBtn = Instance.new("TextButton", visRow)
-    vBtn.Size = UDim2.new(0.5, 0, 1, 0); vBtn.Position = UDim2.new(0.5, 0, 0, 0)
-    vBtn.BackgroundColor3 = bindData.Visible and Color3.fromRGB(40, 120, 60) or Color3.fromRGB(45, 50, 65)
-    vBtn.Text = bindData.Visible and "On" or "Off"
-    vBtn.Font = Enum.Font.Gotham; vBtn.TextSize = 11; vBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-    Instance.new("UICorner", vBtn).CornerRadius = UDim.new(0, 4)
-
-    vBtn.MouseButton1Click:Connect(function()
-        bindData.Visible = not bindData.Visible
-        vBtn.Text = bindData.Visible and "On" or "Off"
-        vBtn.BackgroundColor3 = bindData.Visible and Color3.fromRGB(40, 120, 60) or Color3.fromRGB(45, 50, 65)
-    end)
-
-    -- 4. Delete Action
-    local delBtn = Instance.new("TextButton", modal)
-    delBtn.Size = UDim2.new(1, 0, 0, 24)
-    delBtn.BackgroundColor3 = Color3.fromRGB(180, 50, 50)
-    delBtn.Text = "Delete Hotkey"
-    delBtn.Font = Enum.Font.GothamBold; delBtn.TextSize = 11; delBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-    Instance.new("UICorner", delBtn).CornerRadius = UDim.new(0, 4)
-
-    delBtn.MouseButton1Click:Connect(function()
-        bindData.Key = "None"
-        bindData.Active = false
-        modal:Destroy()
-        self.CurrentConfigModal = nil
-    end)
-
-    self.CurrentConfigModal = modal
-end
-
--- ── 6. КНОПКА ТРЕХ ТОЧЕК (`...` / EXTRA SETTINGS) ─────────────────────────
-
-function FluentExtension:AddSettings(fluentElement, settingsCallback)
+function FX:AddSubSettings(fluentElement, subConfig)
     local frame = fluentElement.Frame or fluentElement
     if not frame then return end
 
-    local dotsBtn = Instance.new("TextButton", frame)
-    dotsBtn.Name = "Dots_Settings_Btn"
-    dotsBtn.Size = UDim2.fromOffset(24, 20)
-    dotsBtn.AnchorPoint = Vector2.new(1, 0.5)
-    dotsBtn.Position = UDim2.new(1, -50, 0.5, 0)
-    dotsBtn.BackgroundTransparency = 1
-    dotsBtn.Text = "•••"
-    dotsBtn.Font = Enum.Font.GothamBold
-    dotsBtn.TextSize = 12
-    dotsBtn.TextColor3 = Color3.fromRGB(140, 150, 170)
+    local dots = Instance.new("TextButton", frame)
+    dots.Size = UDim2.fromOffset(24, 20)
+    dots.AnchorPoint = Vector2.new(1, 0.5)
+    dots.Position = UDim2.new(1, -50, 0.5, 0)
+    dots.BackgroundTransparency = 1
+    dots.Text = "•••"
+    dots.Font = Enum.Font.GothamBold
+    dots.TextSize = 14
+    dots.TextColor3 = self.ThemeColors.SubText
+    dots.ZIndex = 50
 
-    dotsBtn.MouseEnter:Connect(function() dotsBtn.TextColor3 = Color3.fromRGB(89, 140, 250) end)
-    dotsBtn.MouseLeave:Connect(function() dotsBtn.TextColor3 = Color3.fromRGB(140, 150, 170) end)
+    dots.MouseEnter:Connect(function() dots.TextColor3 = self.ThemeColors.Accent end)
+    dots.MouseLeave:Connect(function() dots.TextColor3 = self.ThemeColors.SubText end)
 
-    dotsBtn.MouseButton1Click:Connect(function()
-        if settingsCallback then
-            settingsCallback(dotsBtn.AbsolutePosition)
-        end
+    dots.MouseButton1Click:Connect(function()
+        self:OpenSubSettings(dots.AbsolutePosition, subConfig)
     end)
 end
 
--- ── 7. МУЛЬТИ-СЕЛЕКТ СЕТКА ТЕГОВ (TAG GRID) ────────────────────────────────
+function FX:OpenSubSettings(pos, subConfig)
+    self:CloseAllModals()
 
-function FluentExtension:CreateTagGrid(container, config)
-    local TagGrid = {
-        Title = config.Title or "Tag Grid",
-        Items = config.Items or {},
-        Selected = config.Default or {},
-        Callback = config.Callback or function() end,
-        Buttons = {}
-    }
+    local menu = Instance.new("Frame", self.GUI)
+    menu.Name = "SubSettings"
+    menu.Size = UDim2.fromOffset(220, 200) -- Авто-размер добавим ниже
+    menu.Position = UDim2.fromOffset(pos.X + 30, pos.Y - 10)
+    menu.BackgroundColor3 = self.ThemeColors.Main
+    menu.ZIndex = 3000
+    self:CreateRound(menu); self:CreateStroke(menu)
 
-    local mainFrame = Instance.new("Frame", container)
-    mainFrame.Size = UDim2.new(1, 0, 0, 0)
-    mainFrame.AutomaticSize = Enum.AutomaticSize.Y
-    mainFrame.BackgroundColor3 = Color3.fromRGB(18, 21, 28)
-    mainFrame.BackgroundTransparency = 0.2
-    mainFrame.BorderSizePixel = 0
+    local pad = Instance.new("UIPadding", menu)
+    pad.PaddingTop=UDim.new(0,8); pad.PaddingBottom=UDim.new(0,8); pad.PaddingLeft=UDim.new(0,8); pad.PaddingRight=UDim.new(0,8)
+    local layout = Instance.new("UIListLayout", menu)
+    layout.Padding = UDim.new(0, 8); layout.SortOrder = Enum.SortOrder.LayoutOrder
 
-    Instance.new("UICorner", mainFrame).CornerRadius = UDim.new(0, 6)
-    local stroke = Instance.new("UIStroke", mainFrame)
-    stroke.Color = Color3.fromRGB(45, 52, 68)
+    local totalHeight = 16
 
-    local titleLbl = Instance.new("TextLabel", mainFrame)
-    titleLbl.Size = UDim2.new(1, -20, 0, 26)
-    titleLbl.Position = UDim2.fromOffset(10, 4)
-    titleLbl.BackgroundTransparency = 1
-    titleLbl.Text = TagGrid.Title
-    titleLbl.TextColor3 = Color3.fromRGB(240, 240, 240)
-    titleLbl.Font = Enum.Font.GothamMedium
-    titleLbl.TextSize = 12
-    titleLbl.TextXAlignment = Enum.TextXAlignment.Left
-
-    local gridFrame = Instance.new("Frame", mainFrame)
-    gridFrame.Size = UDim2.new(1, -20, 0, 0)
-    gridFrame.Position = UDim2.fromOffset(10, 32)
-    gridFrame.AutomaticSize = Enum.AutomaticSize.Y
-    gridFrame.BackgroundTransparency = 1
-
-    local uigrid = Instance.new("UIGridLayout", gridFrame)
-    uigrid.CellSize = UDim2.fromOffset(108, 28)
-    uigrid.CellPadding = UDim2.fromOffset(6, 6)
-
-    local pad = Instance.new("UIPadding", mainFrame)
-    pad.PaddingBottom = UDim.new(0, 10)
-
-    local function updateGrid()
-        for name, btnData in pairs(TagGrid.Buttons) do
-            local isSel = TagGrid.Selected[name]
-            if isSel then
-                btnData.Button.BackgroundColor3 = Color3.fromRGB(217, 51, 51)
-                btnData.Button.BackgroundTransparency = 0.75
-                btnData.Stroke.Color = Color3.fromRGB(217, 51, 51)
-                btnData.Button.TextColor3 = Color3.fromRGB(255, 255, 255)
-            else
-                btnData.Button.BackgroundColor3 = Color3.fromRGB(28, 32, 44)
-                btnData.Button.BackgroundTransparency = 0.5
-                btnData.Stroke.Color = Color3.fromRGB(48, 55, 72)
-                btnData.Button.TextColor3 = Color3.fromRGB(150, 160, 180)
+    for _, cfg in ipairs(subConfig) do
+        if cfg.Type == "Slider" then
+            local r = Instance.new("Frame", menu); r.Size=UDim2.new(1,0,0,36); r.BackgroundTransparency=1
+            local t = Instance.new("TextLabel", r); t.Size=UDim2.new(1,0,0,14); t.BackgroundTransparency=1; t.Text=cfg.Title; t.TextColor3=self.ThemeColors.Text; t.Font=Enum.Font.Gotham; t.TextSize=11; t.TextXAlignment=0
+            local valT = Instance.new("TextLabel", r); valT.Size=UDim2.new(1,0,0,14); valT.BackgroundTransparency=1; valT.Text=tostring(cfg.Default or 0); valT.TextColor3=self.ThemeColors.Accent; valT.Font=Enum.Font.GothamBold; valT.TextSize=11; valT.TextXAlignment=1
+            
+            local bg = Instance.new("TextButton", r); bg.Size=UDim2.new(1,0,0,8); bg.Position=UDim2.new(0,0,0,20); bg.BackgroundColor3=self.ThemeColors.Hover; bg.Text=""; self:CreateRound(bg,4); self:CreateStroke(bg)
+            local fill = Instance.new("Frame", bg); fill.Size=UDim2.fromScale(0.5, 1); fill.BackgroundColor3=self.ThemeColors.Accent; self:CreateRound(fill,4)
+            
+            local min, max = cfg.Min or 0, cfg.Max or 100
+            local function update(input)
+                local pct = math.clamp((input.Position.X - bg.AbsolutePosition.X) / bg.AbsoluteSize.X, 0, 1)
+                local val = math.floor(min + (max - min) * pct)
+                fill.Size = UDim2.fromScale(pct, 1)
+                valT.Text = tostring(val)
+                if cfg.Callback then cfg.Callback(val) end
             end
+
+            local dragging = false
+            bg.InputBegan:Connect(function(i) if i.UserInputType==Enum.UserInputType.MouseButton1 then dragging=true; update(i) end end)
+            UserInputService.InputEnded:Connect(function(i) if i.UserInputType==Enum.UserInputType.MouseButton1 then dragging=false end end)
+            UserInputService.InputChanged:Connect(function(i) if dragging and i.UserInputType==Enum.UserInputType.MouseMovement then update(i) end end)
+
+            -- Инициализация ползунка
+            local defPct = ((cfg.Default or min) - min) / (max - min)
+            fill.Size = UDim2.fromScale(defPct, 1)
+
+            totalHeight = totalHeight + 44
+        elseif cfg.Type == "Toggle" then
+            local r = Instance.new("TextButton", menu); r.Size=UDim2.new(1,0,0,24); r.BackgroundTransparency=1; r.Text=""
+            local t = Instance.new("TextLabel", r); t.Size=UDim2.new(1,-30,1,0); t.BackgroundTransparency=1; t.Text=cfg.Title; t.TextColor3=self.ThemeColors.Text; t.Font=Enum.Font.Gotham; t.TextSize=11; t.TextXAlignment=0
+            local box = Instance.new("Frame", r); box.Size=UDim2.fromOffset(16,16); box.Position=UDim2.new(1,-16,0.5,-8); box.BackgroundColor3=cfg.Default and self.ThemeColors.Accent or self.ThemeColors.Hover; self:CreateRound(box,4); self:CreateStroke(box)
+            
+            local state = cfg.Default or false
+            r.MouseButton1Click:Connect(function()
+                state = not state
+                box.BackgroundColor3 = state and self.ThemeColors.Accent or self.ThemeColors.Hover
+                if cfg.Callback then cfg.Callback(state) end
+            end)
+            totalHeight = totalHeight + 32
         end
     end
 
-    for _, itemName in ipairs(TagGrid.Items) do
-        local tagBtn = Instance.new("TextButton", gridFrame)
-        tagBtn.Text = itemName
-        tagBtn.Font = Enum.Font.Gotham
-        tagBtn.TextSize = 11
-        tagBtn.AutoButtonColor = false
+    menu.Size = UDim2.fromOffset(200, totalHeight)
+    self.Windows.SubSettings = menu
 
-        Instance.new("UICorner", tagBtn).CornerRadius = UDim.new(0, 4)
-        local btnStroke = Instance.new("UIStroke", tagBtn)
-
-        TagGrid.Buttons[itemName] = { Button = tagBtn, Stroke = btnStroke }
-
-        tagBtn.MouseButton1Click:Connect(function()
-            TagGrid.Selected[itemName] = not TagGrid.Selected[itemName]
-            updateGrid()
-            TagGrid.Callback(TagGrid.Selected)
-        end)
-    end
-
-    updateGrid()
-    return TagGrid
-end
-
--- ── 8. LOCAL_INF (ПРОФИЛЬ ИГРОКА СЛЕВА СНИЗУ) ────────────────────────────────
-
-function FluentExtension:AttachLocalInfo(fluentWindow)
-    if self.LocalInfoFrame then return end
-
-    local root = fluentWindow.Root
-    if not root then return end
-
-    local infoFrame = Instance.new("Frame", root)
-    infoFrame.Name = "Local_Inf_Profile"
-    infoFrame.Size = UDim2.new(0, (fluentWindow.TabWidth or 160) - 24, 0, 42)
-    infoFrame.Position = UDim2.new(0, 12, 1, -52)
-    infoFrame.BackgroundColor3 = Color3.fromRGB(18, 21, 28)
-    infoFrame.BorderSizePixel = 0
-
-    Instance.new("UICorner", infoFrame).CornerRadius = UDim.new(0, 6)
-    local stroke = Instance.new("UIStroke", infoFrame)
-    stroke.Color = Color3.fromRGB(45, 52, 68)
-
-    local avatarImg = Instance.new("ImageLabel", infoFrame)
-    avatarImg.Size = UDim2.fromOffset(30, 30)
-    avatarImg.Position = UDim2.fromOffset(6, 6)
-    avatarImg.BackgroundTransparency = 1
-    Instance.new("UICorner", avatarImg).CornerRadius = UDim.new(1, 0)
-
-    task.spawn(function()
-        local content = Players:GetUserThumbnailAsync(
-            LocalPlayer.UserId,
-            Enum.ThumbnailType.HeadShot,
-            Enum.ThumbnailSize.Size100x100
-        )
-        avatarImg.Image = content
+    local conn; conn = UserInputService.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            if menu.Parent then
+                local m = UserInputService:GetMouseLocation()
+                local a, s = menu.AbsolutePosition, menu.AbsoluteSize
+                if m.X < a.X or m.X > a.X + s.X or m.Y < a.Y or m.Y > a.Y + s.Y then
+                    menu:Destroy(); conn:Disconnect()
+                end
+            else conn:Disconnect() end
+        end
     end)
-
-    local nameLbl = Instance.new("TextLabel", infoFrame)
-    nameLbl.Size = UDim2.new(1, -44, 0, 16)
-    nameLbl.Position = UDim2.fromOffset(40, 5)
-    nameLbl.BackgroundTransparency = 1
-    nameLbl.Font = Enum.Font.GothamBold
-    nameLbl.TextSize = 11
-    nameLbl.TextColor3 = Color3.fromRGB(240, 245, 255)
-    nameLbl.TextXAlignment = Enum.TextXAlignment.Left
-    nameLbl.TextTruncate = Enum.TextTruncate.AtEnd
-    nameLbl.Text = LocalPlayer.DisplayName
-
-    local userLbl = Instance.new("TextLabel", infoFrame)
-    userLbl.Size = UDim2.new(1, -44, 0, 14)
-    userLbl.Position = UDim2.fromOffset(40, 21)
-    userLbl.BackgroundTransparency = 1
-    userLbl.Font = Enum.Font.Gotham
-    userLbl.TextSize = 10
-    userLbl.TextColor3 = Color3.fromRGB(130, 140, 160)
-    userLbl.TextXAlignment = Enum.TextXAlignment.Left
-    userLbl.TextTruncate = Enum.TextTruncate.AtEnd
-    userLbl.Text = "@" .. LocalPlayer.Name
-
-    self.LocalInfoFrame = infoFrame
-    return infoFrame
 end
 
-return FluentExtension
+-- ── 7. WATERMARK ────────────────────────────────────────────────────────────
+
+function FX:CreateWatermark()
+    local frame = Instance.new("Frame", self.GUI)
+    frame.Size = UDim2.fromOffset(300, 30)
+    frame.Position = UDim2.new(1, -320, 0, 15)
+    frame.BackgroundColor3 = self.ThemeColors.Main
+    self:CreateRound(frame); self:CreateStroke(frame)
+
+    local icon = Instance.new("ImageLabel", frame)
+    icon.Size = UDim2.fromOffset(18, 18); icon.Position = UDim2.fromOffset(6, 6)
+    icon.BackgroundTransparency = 1; icon.Image = self.GameInfo.Icon
+
+    local lbl = Instance.new("TextLabel", frame)
+    lbl.Size = UDim2.new(1, -30, 1, 0); lbl.Position = UDim2.fromOffset(30, 0)
+    lbl.BackgroundTransparency = 1; lbl.TextColor3 = self.ThemeColors.Text
+    lbl.Font = Enum.Font.GothamMedium; lbl.TextSize = 11; lbl.TextXAlignment = 0
+
+    local fc = 0; local lt = tick()
+    RunService.Heartbeat:Connect(function()
+        fc = fc + 1; local now = tick()
+        if now - lt >= 0.5 then
+            local fps = math.floor(fc / (now - lt)); fc = 0; lt = now
+            local ping = 0; pcall(function() ping = math.floor(StatsService.Network.ServerStatsItem["Data Ping"]:GetValue()) end)
+            lbl.Text = string.format("Fluent | %s | %d fps | %d ms", self.GameInfo.Name, fps, ping)
+        end
+    end)
+    self:MakeDraggable(frame)
+end
+
+-- ── 8. HOTKEYS OVERLAY & MANAGER ────────────────────────────────────────────
+
+function FX:CreateHotkeysOverlay()
+    local frame = Instance.new("Frame", self.GUI)
+    frame.Size = UDim2.fromOffset(200, 30)
+    frame.Position = UDim2.new(0, 15, 0.4, 0)
+    frame.BackgroundColor3 = self.ThemeColors.Main
+    frame.ClipsDescendants = true
+    self:CreateRound(frame); self:CreateStroke(frame)
+
+    local title = Instance.new("TextLabel", frame)
+    title.Size = UDim2.new(1, 0, 0, 30); title.Position = UDim2.fromOffset(10, 0)
+    title.BackgroundTransparency = 1; title.Text = "Hotkeys"; title.TextColor3 = Color3.new(1,1,1)
+    title.Font = Enum.Font.GothamBold; title.TextSize = 12; title.TextXAlignment = 0
+
+    local cont = Instance.new("Frame", frame); cont.Position = UDim2.fromOffset(8, 30)
+    cont.Size = UDim2.new(1, -16, 0, 0); cont.BackgroundTransparency = 1
+    local layout = Instance.new("UIListLayout", cont); layout.Padding = UDim.new(0, 4)
+
+    local rows = {}
+    RunService.Heartbeat:Connect(function()
+        local active = 0
+        for optId, bind in pairs(self.Hotkeys) do
+            if bind.Visible and bind.Key ~= "None" then
+                local opt = self.Library.Options[optId]
+                if not rows[optId] then
+                    local r = Instance.new("Frame", cont); r.Size = UDim2.new(1,0,0,18); r.BackgroundTransparency=1
+                    local n = Instance.new("TextLabel", r); n.Size=UDim2.new(0.6,0,1,0); n.BackgroundTransparency=1; n.Font=Enum.Font.Gotham; n.TextSize=11; n.TextXAlignment=0
+                    local s = Instance.new("TextLabel", r); s.Size=UDim2.new(0.4,0,1,0); s.Position=UDim2.new(0.6,0,0,0); s.BackgroundTransparency=1; s.Font=Enum.Font.GothamMedium; s.TextSize=11; s.TextXAlignment=1
+                    rows[optId] = {F=r, N=n, S=s}
+                end
+                local r = rows[optId]; r.F.Visible = true
+                r.N.Text = opt and opt.Title or optId
+                r.S.Text = string.format("[%s] %s", bind.Key, bind.Mode)
+                if bind.Active then r.N.TextColor3=Color3.new(1,1,1); r.S.TextColor3=self.ThemeColors.Accent
+                else r.N.TextColor3=self.ThemeColors.SubText; r.S.TextColor3=Color3.fromRGB(90,95,110) end
+                active = active + 1
+            elseif rows[optId] then rows[optId].F.Visible = false end
+        end
+        if active == 0 then frame.Visible = false else frame.Visible = true; frame.Size = UDim2.fromOffset(200, 34 + (active * 22)) end
+    end)
+    self:MakeDraggable(frame, title)
+end
+
+function FX:CreateAllHotkeysManager()
+    if self.Windows.Manager then self.Windows.Manager:Destroy() end
+    local modal = Instance.new("Frame", self.GUI); modal.Size=UDim2.fromOffset(500, 300); modal.Position=UDim2.new(0.5,-250,0.5,-150)
+    modal.BackgroundColor3=self.ThemeColors.Main; self:CreateRound(modal); self:CreateStroke(modal); modal.ZIndex=3000
+    
+    local title = Instance.new("TextLabel", modal); title.Size=UDim2.new(1,0,0,36); title.Position=UDim2.fromOffset(15,0); title.BackgroundTransparency=1; title.Text="All Hotkeys Manager"; title.TextColor3=Color3.new(1,1,1); title.Font=Enum.Font.GothamBold; title.TextSize=14; title.TextXAlignment=0
+    local cls = Instance.new("TextButton", modal); cls.Size=UDim2.fromOffset(24,24); cls.Position=UDim2.new(1,-32,0,6); cls.BackgroundTransparency=1; cls.Text="✕"; cls.TextColor3=self.ThemeColors.SubText; cls.Font=Enum.Font.GothamBold; cls.TextSize=14; cls.MouseButton1Click:Connect(function() modal:Destroy() end)
+    
+    local scroll = Instance.new("ScrollingFrame", modal); scroll.Size=UDim2.new(1,-20,1,-50); scroll.Position=UDim2.fromOffset(10,40); scroll.BackgroundTransparency=1; scroll.ScrollBarThickness=2; scroll.AutomaticCanvasSize=Enum.AutomaticSize.Y
+    local layout = Instance.new("UIListLayout", scroll); layout.Padding=UDim.new(0,6)
+
+    for optId, bind in pairs(self.Hotkeys) do
+        local r = Instance.new("Frame", scroll); r.Size=UDim2.new(1,0,0,30); r.BackgroundColor3=self.ThemeColors.Hover; self:CreateRound(r); self:CreateStroke(r)
+        local n = Instance.new("TextLabel", r); n.Size=UDim2.new(0.35,0,1,0); n.Position=UDim2.fromOffset(10,0); n.BackgroundTransparency=1; n.Text=(self.Library.Options[optId] and self.Library.Options[optId].Title) or optId; n.TextColor3=Color3.new(1,1,1); n.Font=Enum.Font.Gotham; n.TextSize=11; n.TextXAlignment=0
+        local k = Instance.new("TextLabel", r); k.Size=UDim2.new(0.2,0,1,0); k.Position=UDim2.new(0.4,0,0,0); k.BackgroundTransparency=1; k.Text="Key: "..(bind.Key or "None"); k.TextColor3=self.ThemeColors.Accent; k.Font=Enum.Font.GothamBold; k.TextSize=11
+        local m = Instance.new("TextLabel", r); m.Size=UDim2.new(0.2,0,1,0); m.Position=UDim2.new(0.6,0,0,0); m.BackgroundTransparency=1; m.Text="Mode: "..(bind.Mode or "Toggle"); m.TextColor3=self.ThemeColors.SubText; m.Font=Enum.Font.Gotham; m.TextSize=11
+        
+        local d = Instance.new("TextButton", r); d.Size=UDim2.fromOffset(60, 20); d.Position=UDim2.new(1,-70,0.5,-10); d.BackgroundColor3=self.ThemeColors.Danger; d.Text="Delete"; d.TextColor3=Color3.new(1,1,1); d.Font=Enum.Font.Gotham; d.TextSize=10; self:CreateRound(d,4)
+        d.MouseButton1Click:Connect(function() self.Hotkeys[optId]=nil; r:Destroy() end)
+    end
+    self:MakeDraggable(modal, title)
+    self.Windows.Manager = modal
+end
+
+-- ── 9. TAG GRID ─────────────────────────────────────────────────────────────
+
+function FX:CreateTagGrid(container, config)
+    local Grid = { Selected = config.Default or {} }
+    local main = Instance.new("Frame", container); main.Size=UDim2.new(1,0,0,0); main.AutomaticSize=Enum.AutomaticSize.Y; main.BackgroundColor3=self.ThemeColors.Hover; main.BackgroundTransparency=0.3; self:CreateRound(main); self:CreateStroke(main)
+    local title = Instance.new("TextLabel", main); title.Size=UDim2.new(1,-20,0,26); title.Position=UDim2.fromOffset(10,4); title.BackgroundTransparency=1; title.Text=config.Title or "Tags"; title.TextColor3=self.ThemeColors.Text; title.Font=Enum.Font.GothamMedium; title.TextSize=12; title.TextXAlignment=0
+    
+    local gFrame = Instance.new("Frame", main); gFrame.Size=UDim2.new(1,-20,0,0); gFrame.Position=UDim2.fromOffset(10,32); gFrame.AutomaticSize=Enum.AutomaticSize.Y; gFrame.BackgroundTransparency=1
+    local layout = Instance.new("UIGridLayout", gFrame); layout.CellSize=UDim2.fromOffset(108,26); layout.CellPadding=UDim2.fromOffset(6,6)
+    local pad = Instance.new("UIPadding", main); pad.PaddingBottom=UDim.new(0,10)
+
+    for _, item in ipairs(config.Items) do
+        local b = Instance.new("TextButton", gFrame); b.Text=item; b.Font=Enum.Font.Gotham; b.TextSize=11; self:CreateRound(b,4); local s=self:CreateStroke(b)
+        local function upd()
+            if Grid.Selected[item] then b.BackgroundColor3=self.ThemeColors.Danger; b.BackgroundTransparency=0.2; b.TextColor3=Color3.new(1,1,1); s.Color=self.ThemeColors.Danger
+            else b.BackgroundColor3=self.ThemeColors.Main; b.BackgroundTransparency=0; b.TextColor3=self.ThemeColors.SubText; s.Color=self.ThemeColors.Border end
+        end
+        b.MouseButton1Click:Connect(function() Grid.Selected[item] = not Grid.Selected[item]; upd(); if config.Callback then config.Callback(Grid.Selected) end end)
+        upd()
+    end
+    return Grid
+end
+
+-- ── 10. LOCAL INFO PROFILE ──────────────────────────────────────────────────
+
+function FX:AttachLocalInfo(window)
+    if not window.Root then return end
+    local f = Instance.new("Frame", window.Root); f.Size=UDim2.new(0,window.TabWidth-24, 0,42); f.Position=UDim2.new(0,12, 1,-54); f.BackgroundColor3=self.ThemeColors.Hover; self:CreateRound(f); self:CreateStroke(f)
+    local av = Instance.new("ImageLabel", f); av.Size=UDim2.fromOffset(30,30); av.Position=UDim2.fromOffset(6,6); av.BackgroundTransparency=1; self:CreateRound(av,15)
+    task.spawn(function() av.Image = Players:GetUserThumbnailAsync(LocalPlayer.UserId, Enum.ThumbnailType.HeadShot, Enum.ThumbnailSize.Size100x100) end)
+    
+    local n = Instance.new("TextLabel", f); n.Size=UDim2.new(1,-44,0,16); n.Position=UDim2.fromOffset(42,5); n.BackgroundTransparency=1; n.Text=LocalPlayer.DisplayName; n.TextColor3=self.ThemeColors.Text; n.Font=Enum.Font.GothamBold; n.TextSize=11; n.TextXAlignment=0; n.TextTruncate=1
+    local u = Instance.new("TextLabel", f); u.Size=UDim2.new(1,-44,0,14); u.Position=UDim2.fromOffset(42,21); u.BackgroundTransparency=1; u.Text="@"..LocalPlayer.Name; u.TextColor3=self.ThemeColors.SubText; u.Font=Enum.Font.Gotham; u.TextSize=10; u.TextXAlignment=0; u.TextTruncate=1
+end
+
+return FX
